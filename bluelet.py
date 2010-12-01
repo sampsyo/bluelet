@@ -2,7 +2,7 @@ import socket
 import select
 
 class Event(object):
-    def waitable(self):
+    def waitables(self):
         raise NotImplementedError()
     def fire(self):
         raise NotImplementedError()
@@ -10,8 +10,8 @@ class Event(object):
 class AcceptEvent(Event):
     def __init__(self, listener):
         self.listener = listener
-    def waitable(self):
-        return self.listener.sock
+    def waitables(self):
+        return (self.listener.sock,), (), ()
     def fire(self):
         sock, addr = self.listener.sock.accept()
         return Connection(sock, addr)
@@ -28,10 +28,18 @@ class Listener(object):
 class ReceiveEvent(Event):
     def __init__(self, conn):
         self.conn = conn
-    def waitable(self):
-        return self.conn.sock
+    def waitables(self):
+        return (self.conn.sock,), (), ()
     def fire(self):
         return self.conn.sock.recv(1024)
+class SendEvent(Event):
+    def __init__(self, conn, data):
+        self.conn = conn
+        self.data = data
+    def waitables(self):
+        return (), (self.conn.sock,), ()
+    def fire(self):
+        self.conn.sock.send(self.data)
 class Connection(object):
     def __init__(self, sock, addr):
         self.sock = sock
@@ -40,6 +48,8 @@ class Connection(object):
         self.sock.close()
     def read(self):
         return ReceiveEvent(self)
+    def write(self, data):
+        return SendEvent(self, data)
 
 class SpawnEvent(object):
     def __init__(self, coro):
@@ -69,13 +79,21 @@ def trampoline(*coros):
             
         # Wait.
         waitables = {}
+        iwait, owait, ewait = [], [], []
         for event, coro in events.items():
             if not isinstance(event, SpawnEvent):
-                waitables[event.waitable()] = event
-        iready, oready, eready = select.select(waitables.keys(), [], [])
+                print event
+                i, o, e = event.waitables()
+                iwait += i
+                owait += o
+                ewait += e
+                for waitable in i + o + e:
+                    waitables[waitable] = event
+        print iwait, owait, ewait
+        iready, oready, eready = select.select(iwait, owait, ewait)
     
         # Fire.
-        for ready in iready:
+        for ready in iready + oready + eready:
             event = waitables[ready]
             value = event.fire()
             coro = events[event]
@@ -87,9 +105,10 @@ def echoer(conn):
     while True:
         data = yield conn.read()
         print 'Read from %s: %s' % (conn.addr[0], repr(data))
+        yield conn.write(data)
     conn.close()
 def echoserver():
-    listener = Listener('127.0.0.1', 4918)
+    listener = Listener('127.0.0.1', 4920)
     while True:
         conn = yield listener.accept()
         yield spawn(echoer(conn))
