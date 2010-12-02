@@ -108,18 +108,23 @@ class ThreadException(Exception):
     def __init__(self, coro, exc):
         self.coro = coro
         self.exc = exc
-def _advance_thread(threads, coro, value):
+def _advance_thread(threads, coro, value, is_exc=False):
     """After an event is fired, run a given coroutine associated with
     it in the threads dict until it yields again. If the coroutine
     exits, then the thread is removed from the pool. If the coroutine
-    raises an exception, it is reraised in a ThreadException.
+    raises an exception, it is reraised in a ThreadException. If
+    is_exc is True, then the value is sent as an exception instead of
+    as a normal value (using throw()).
     """
     try:
-        next_event = coro.send(value)
+        if is_exc:
+            next_event = coro.throw(value)
+        else:
+            next_event = coro.send(value)
     except StopIteration:
         # Thread is done.
         del threads[coro]
-    except Exception, exc:
+    except BaseException, exc:
         # Thread raised some other exception.
         del threads[coro]
         raise ThreadException(coro, exc)
@@ -135,10 +140,8 @@ def trampoline(root_coro):
     # Continue advancing threads until root thread exits.
     while root_coro in threads.keys():
         try:
-            # Look for events that can be run immediately. Currently,
-            # our only non-"blocking" events are spawning and the
-            # null event. Continue running immediate events until
-            # nothing is ready.
+            # Look for events that can be run immediately. Continue
+            # running immediate events until nothing is ready.
             while True:
                 have_ready = False
                 for coro, event in threads.items():
@@ -148,6 +151,9 @@ def trampoline(root_coro):
                         have_ready = True
                     elif isinstance(event, NullEvent):
                         _advance_thread(threads, coro, None)
+                        have_ready = True
+                    elif isinstance(event, ExceptionEvent):
+                        _advance_thread(threads, coro, event.exc, True)
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
@@ -166,12 +172,12 @@ def trampoline(root_coro):
                 raise te.exc
             else:
                 # Not from root. Raise back into root.
-                NotImplemented
+                threads[root_coro] = ExceptionEvent(te.exc)
         
-        except Exception, exc:
+        except BaseException, exc:
             # For instance, KeyboardInterrupt during select(). Raise
             # into root thread.
-            NotImplemented
+            threads[root_coro] = ExceptionEvent(exc)
 
 def echoer(conn):
     while True:
@@ -183,8 +189,13 @@ def echoer(conn):
     conn.close()
 def echoserver():
     listener = Listener('127.0.0.1', 4915)
-    while True:
-        conn = yield listener.accept()
-        yield spawn(echoer(conn))
+    try:
+        while True:
+            conn = yield listener.accept()
+            yield spawn(echoer(conn))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print '\nExiting.'
 if __name__ == '__main__':
     trampoline(echoserver())
