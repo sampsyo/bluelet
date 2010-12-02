@@ -120,20 +120,14 @@ def _advance_thread(threads, event, value):
         del threads[event]
         threads[next_event] = coro
 
-def trampoline(*coros):
+def trampoline(root_coro):
     # The "threads" dictionary keeps track of all the currently-
     # executing coroutines. It maps their currently-blocking "event"
     # to the associated coroutine.
-    threads = {}
-
-    # Put all coroutines into the dictionary, marking them as ready
-    # to run.
-    for coro in coros:
-        threads[NullEvent()] = coro
+    threads = {NullEvent(): root_coro}
     
-    # Continue advancing threads until none remain (i.e., all
-    # terminate).
-    while threads:
+    # Continue advancing threads until root thread exits.
+    while root_coro in threads.values():
         # Look for events that can be run immediately. Currently, our
         # only non-"blocking" events are spawning and the null event.
         # Continue running immediate events until nothing is ready.
@@ -166,7 +160,7 @@ def echoer(conn):
         yield conn.write(data)
     conn.close()
 def echoserver():
-    listener = Listener('127.0.0.1', 4917)
+    listener = Listener('127.0.0.1', 4915)
     while True:
         conn = yield listener.accept()
         yield spawn(echoer(conn))
