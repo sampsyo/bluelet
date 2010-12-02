@@ -9,8 +9,6 @@ Bluelet: easy concurrency without all the messy parallelism.
 # To-do:
 # - Notions of "parent" threads. Exceptions in children should be
 #   propagated to parents.
-# - Sockets aren't being clsoed properly? Also, I probably want
-#   SO_REUSEADDR on the sockets in the first place.
 
 import socket
 import select
@@ -50,8 +48,9 @@ class Listener(object):
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((host, port))
-        self.sock.listen(1)
+        self.sock.listen(5)
     def accept(self):
         return AcceptEvent(self)
     def close(self):
@@ -230,7 +229,7 @@ def echoer(conn):
         print 'Disconnected: %s' % conn.addr[0]
         conn.close()
 def echoserver():
-    listener = Listener('127.0.0.1', 4915)
+    listener = Listener('', 4915)
     try:
         while True:
             conn = yield listener.accept()
