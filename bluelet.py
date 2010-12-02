@@ -215,29 +215,3 @@ def trampoline(root_coro):
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
         exit_te.reraise()
-
-def echoer(conn):
-    print 'Connected: %s' % conn.addr[0]
-    try:
-        while True:
-            data = yield conn.recv(1024)
-            if not data:
-                break
-            print 'Read from %s: %s' % (conn.addr[0], repr(data))
-            yield conn.sendall(data)
-    finally:
-        print 'Disconnected: %s' % conn.addr[0]
-        conn.close()
-def echoserver():
-    listener = Listener('', 4915)
-    try:
-        while True:
-            conn = yield listener.accept()
-            yield spawn(echoer(conn))
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print '\nExiting.'
-        listener.close()
-if __name__ == '__main__':
-    trampoline(echoserver())
