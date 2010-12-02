@@ -96,34 +96,43 @@ def _event_select(events):
         ready_events.add(waitable_to_event[waitable])
     return ready_events
 
+def _advance_thread(threads, event, value):
+    """After an event is fired, run a given coroutine associated with
+    it in the threads dict until it yields again.
+    """
+    # Basically, we need to change a coroutine's key in the dictionary.
+    coro = threads[event]
+    next_event = coro.send(value)
+    del threads[event]
+    threads[next_event] = coro
+
 def trampoline(*coros):
+    # The "threads" dictionary keeps track of all the currently-
+    # executing coroutines. It maps their currently-blocking "event"
+    # to the associated coroutine.
+    threads = {}
+
     # Prime the coroutines.
-    events = {}
     for coro in coros:
         event = coro.next()
-        events[event] = coro
+        threads[event] = coro
     
     while True:
         # Look for spawns.
-        for event, coro in events.items():
+        for event, coro in threads.items():
             if isinstance(event, SpawnEvent):
                 # Insert the new coroutine.
                 spawned_coro = event.spawn()
                 spawned_event = spawned_coro.next()
-                events[spawned_event] = spawned_coro
-                
+                threads[spawned_event] = spawned_coro
+
                 # Advance the old coroutine.
-                new_event = coro.send(None)
-                del events[event]
-                events[new_event] = coro
+                _advance_thread(threads, event, None)
             
         # Wait and fire.
-        for event in _event_select(events.keys()):
+        for event in _event_select(threads.keys()):
             value = event.fire()
-            coro = events[event]
-            new_event = coro.send(value)
-            del events[event]
-            events[new_event] = coro
+            _advance_thread(threads, event, value)
 
 def echoer(conn):
     while True:
