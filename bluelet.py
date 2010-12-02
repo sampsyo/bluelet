@@ -1,3 +1,17 @@
+"""Extremely simple pure-Python implementation of coroutine-style
+asynchronous socket I/O. Inspired by, but inferior to, Eventlet.
+Bluelet can also be thought of as a less-terrible replacement for
+asyncore.
+
+Bluelet: easy concurrency without all the messy parallelism.
+"""
+
+# To-do:
+# - Notions of "parent" threads. Exceptions in children should be
+#   propagated to parents.
+# - Sockets aren't being clsoed properly? Also, I probably want
+#   SO_REUSEADDR on the sockets in the first place.
+
 import socket
 import select
 import sys
