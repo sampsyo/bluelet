@@ -4,14 +4,18 @@ import select
 class Event(object):
     def __init__(self):
         raise NotImplementedError()
-    def waitables(self):
-        return (), (), ()
     def fire(self):
         pass
-    def spawn(self):
-        return ()
+class WaitableEvent(Event):
+    def waitables(self):
+        """Return "waitable" objects to pass to select. Should return
+        three iterables for input readiness, output readiness, and
+        exceptional conditions (i.e., the three lists passed to
+        select()).
+        """
+        return (), (), ()
     
-class AcceptEvent(Event):
+class AcceptEvent(WaitableEvent):
     def __init__(self, listener):
         self.listener = listener
     def waitables(self):
@@ -29,14 +33,14 @@ class Listener(object):
     def accept(self):
         return AcceptEvent(self)
 
-class ReceiveEvent(Event):
+class ReceiveEvent(WaitableEvent):
     def __init__(self, conn):
         self.conn = conn
     def waitables(self):
         return (self.conn.sock,), (), ()
     def fire(self):
         return self.conn.sock.recv(1024)
-class SendEvent(Event):
+class SendEvent(WaitableEvent):
     def __init__(self, conn, data):
         self.conn = conn
         self.data = data
@@ -63,6 +67,35 @@ class SpawnEvent(object):
 def spawn(coro):
     return SpawnEvent(coro)
 
+def _event_select(events):
+    """Perform a select() over all the Events provided, returning the
+    ones ready to be fired.
+    """
+    # Gather waitables.
+    waitable_to_event = {}
+    rlist, wlist, xlist = [], [], []
+    for event in events:
+        if isinstance(event, WaitableEvent):
+            r, w, x = event.waitables()
+            rlist += r
+            wlist += w
+            xlist += x
+            for waitable in r + w + x:
+                waitable_to_event[waitable] = event
+
+    # Perform select() if we have any waitables.
+    if rlist or wlist or xlist:
+        rready, wready, xready = select.select(rlist, wlist, xlist)
+        ready = rready + wready + xready
+    else:
+        ready = []
+
+    # Gather ready events corresponding to the ready waitables.
+    ready_events = set()
+    for waitable in ready:
+        ready_events.add(waitable_to_event[waitable])
+    return ready_events
+
 def trampoline(*coros):
     # Prime the coroutines.
     events = {}
@@ -84,22 +117,8 @@ def trampoline(*coros):
                 del events[event]
                 events[new_event] = coro
             
-        # Wait.
-        waitables = {}
-        iwait, owait, ewait = [], [], []
-        for event, coro in events.items():
-            i, o, e = event.waitables()
-            iwait += i
-            owait += o
-            ewait += e
-            for waitable in i + o + e:
-                waitables[waitable] = event
-        print iwait, owait, ewait
-        iready, oready, eready = select.select(iwait, owait, ewait)
-    
-        # Fire.
-        for ready in iready + oready + eready:
-            event = waitables[ready]
+        # Wait and fire.
+        for event in _event_select(events.keys()):
             value = event.fire()
             coro = events[event]
             new_event = coro.send(value)
