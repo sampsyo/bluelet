@@ -52,23 +52,29 @@ class ReceiveEvent(WaitableEvent):
     def fire(self):
         return self.conn.sock.recv(self.bufsize)
 class SendEvent(WaitableEvent):
-    def __init__(self, conn, data):
+    def __init__(self, conn, data, sendall=False):
         self.conn = conn
         self.data = data
+        self.sendall = sendall
     def waitables(self):
         return (), (self.conn.sock,), ()
     def fire(self):
-        self.conn.sock.send(self.data)
+        if self.sendall:
+            return self.conn.sock.sendall(self.data)
+        else:
+            return self.conn.sock.send(self.data)
 class Connection(object):
     def __init__(self, sock, addr):
         self.sock = sock
         self.addr = addr
     def close(self):
         self.sock.close()
-    def read(self, bufsize):
+    def recv(self, bufsize):
         return ReceiveEvent(self, bufsize)
-    def write(self, data):
+    def send(self, data):
         return SendEvent(self, data)
+    def sendall(self, data):
+        return SendEvent(self, data, True)
 
 class SpawnEvent(object):
     def __init__(self, coro):
@@ -201,11 +207,11 @@ def echoer(conn):
     print 'Connected: %s' % conn.addr[0]
     try:
         while True:
-            data = yield conn.read(1024)
+            data = yield conn.recv(1024)
             if not data:
                 break
             print 'Read from %s: %s' % (conn.addr[0], repr(data))
-            yield conn.write(data)
+            yield conn.sendall(data)
     finally:
         print 'Disconnected: %s' % conn.addr[0]
         conn.close()
@@ -219,5 +225,6 @@ def echoserver():
         pass
     finally:
         print '\nExiting.'
+        listener.close()
 if __name__ == '__main__':
     trampoline(echoserver())
