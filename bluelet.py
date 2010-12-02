@@ -104,45 +104,36 @@ def _event_select(events):
         ready_events.add(waitable_to_event[waitable])
     return ready_events
 
-def _replace_key(dictionary, old_key, new_key):
-    value = dictionary[old_key]
-    del dictionary[old_key]
-    if new_key is not None:
-        dictionary[new_key] = value
-
 class ThreadException(Exception):
     def __init__(self, coro, exc):
         self.coro = coro
         self.exc = exc
-def _advance_thread(threads, event, value):
+def _advance_thread(threads, coro, value):
     """After an event is fired, run a given coroutine associated with
     it in the threads dict until it yields again. If the coroutine
     exits, then the thread is removed from the pool. If the coroutine
     raises an exception, it is reraised in a ThreadException.
     """
-    coro = threads[event]
-    next_event = None
     try:
         next_event = coro.send(value)
     except StopIteration:
         # Thread is done.
-        del threads[event]
+        del threads[coro]
     except Exception, exc:
         # Thread raised some other exception.
-        del threads[event]
+        del threads[coro]
         raise ThreadException(coro, exc)
     else:
-        # Replace key with next event produced by the thread.
-        _replace_key(threads, event, next_event)
+        threads[coro] = next_event
 
 def trampoline(root_coro):
     # The "threads" dictionary keeps track of all the currently-
-    # executing coroutines. It maps their currently-blocking "event"
-    # to the associated coroutine.
-    threads = {NullEvent(): root_coro}
+    # executing coroutines. It maps coroutines to their currenly
+    # "blocking" event.
+    threads = {root_coro: NullEvent()}
     
     # Continue advancing threads until root thread exits.
-    while root_coro in threads.values():
+    while root_coro in threads.keys():
         try:
             # Look for events that can be run immediately. Currently,
             # our only non-"blocking" events are spawning and the
@@ -150,13 +141,13 @@ def trampoline(root_coro):
             # nothing is ready.
             while True:
                 have_ready = False
-                for event in threads.keys():
+                for coro, event in threads.items():
                     if isinstance(event, SpawnEvent):
-                        threads[NullEvent()] = event.spawned # Spawn.
-                        _advance_thread(threads, event, None)
+                        threads[event.spawned] = NullEvent() # Spawn.
+                        _advance_thread(threads, coro, None)
                         have_ready = True
                     elif isinstance(event, NullEvent):
-                        _advance_thread(threads, event, None)
+                        _advance_thread(threads, coro, None)
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
@@ -164,9 +155,10 @@ def trampoline(root_coro):
                     break
             
             # Wait and fire.
-            for event in _event_select(threads.keys()):
+            event2coro = dict((v,k) for k,v in threads.iteritems())
+            for event in _event_select(threads.values()):
                 value = event.fire()
-                _advance_thread(threads, event, value)
+                _advance_thread(threads, event2coro[event], value)
     
         except ThreadException, te:
             if te.coro == root_coro:
