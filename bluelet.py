@@ -34,14 +34,17 @@ class Listener(object):
         self.sock.listen(1)
     def accept(self):
         return AcceptEvent(self)
+    def close(self):
+        self.sock.close()
 
 class ReceiveEvent(WaitableEvent):
-    def __init__(self, conn):
+    def __init__(self, conn, bufsize):
         self.conn = conn
+        self.bufsize = bufsize
     def waitables(self):
         return (self.conn.sock,), (), ()
     def fire(self):
-        return self.conn.sock.recv(1024)
+        return self.conn.sock.recv(self.bufsize)
 class SendEvent(WaitableEvent):
     def __init__(self, conn, data):
         self.conn = conn
@@ -56,8 +59,8 @@ class Connection(object):
         self.addr = addr
     def close(self):
         self.sock.close()
-    def read(self):
-        return ReceiveEvent(self)
+    def read(self, bufsize):
+        return ReceiveEvent(self, bufsize)
     def write(self, data):
         return SendEvent(self, data)
 
@@ -98,13 +101,24 @@ def _event_select(events):
 
 def _advance_thread(threads, event, value):
     """After an event is fired, run a given coroutine associated with
-    it in the threads dict until it yields again.
+    it in the threads dict until it yields again. If the coroutine
+    exits, then the thread is removed from the pool.
     """
-    # Basically, we need to change a coroutine's key in the dictionary.
     coro = threads[event]
-    next_event = coro.send(value)
-    del threads[event]
-    threads[next_event] = coro
+    next_event = None
+    try:
+        next_event = coro.send(value)
+    except StopIteration:
+        # Thread is done.
+        del threads[event]
+    except:
+        # Thread raised some other exception.
+        del threads[event]
+        raise
+    else:
+        # Replace key with next event produced by the thread.
+        del threads[event]
+        threads[next_event] = coro
 
 def trampoline(*coros):
     # The "threads" dictionary keeps track of all the currently-
@@ -117,7 +131,9 @@ def trampoline(*coros):
     for coro in coros:
         threads[NullEvent()] = coro
     
-    while True:
+    # Continue advancing threads until none remain (i.e., all
+    # terminate).
+    while threads:
         # Look for events that can be run immediately. Currently, our
         # only non-"blocking" events are spawning and the null event.
         # Continue running immediate events until nothing is ready.
@@ -143,12 +159,14 @@ def trampoline(*coros):
 
 def echoer(conn):
     while True:
-        data = yield conn.read()
+        data = yield conn.read(1024)
+        if not data:
+            break
         print 'Read from %s: %s' % (conn.addr[0], repr(data))
         yield conn.write(data)
     conn.close()
 def echoserver():
-    listener = Listener('127.0.0.1', 4915)
+    listener = Listener('127.0.0.1', 4917)
     while True:
         conn = yield listener.accept()
         yield spawn(echoer(conn))
