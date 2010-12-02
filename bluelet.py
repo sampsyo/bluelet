@@ -2,10 +2,7 @@ import socket
 import select
 
 class Event(object):
-    def __init__(self):
-        raise NotImplementedError()
-    def fire(self):
-        pass
+    pass
 class WaitableEvent(Event):
     def waitables(self):
         """Return "waitable" objects to pass to select. Should return
@@ -14,6 +11,11 @@ class WaitableEvent(Event):
         select()).
         """
         return (), (), ()
+    def fire(self):
+        pass
+
+class NullEvent(Event):
+    """An event that does nothing. Used to simply yield control."""
     
 class AcceptEvent(WaitableEvent):
     def __init__(self, listener):
@@ -61,9 +63,7 @@ class Connection(object):
 
 class SpawnEvent(object):
     def __init__(self, coro):
-        self.coro = coro
-    def spawn(self):
-        return self.coro
+        self.spawned = coro
 def spawn(coro):
     return SpawnEvent(coro)
 
@@ -112,22 +112,29 @@ def trampoline(*coros):
     # to the associated coroutine.
     threads = {}
 
-    # Prime the coroutines.
+    # Put all coroutines into the dictionary, marking them as ready
+    # to run.
     for coro in coros:
-        event = coro.next()
-        threads[event] = coro
+        threads[NullEvent()] = coro
     
     while True:
-        # Look for spawns.
-        for event, coro in threads.items():
-            if isinstance(event, SpawnEvent):
-                # Insert the new coroutine.
-                spawned_coro = event.spawn()
-                spawned_event = spawned_coro.next()
-                threads[spawned_event] = spawned_coro
+        # Look for events that can be run immediately. Currently, our
+        # only non-"blocking" events are spawning and the null event.
+        # Continue running immediate events until nothing is ready.
+        while True:
+            have_ready = False
+            for event in threads.keys():
+                if isinstance(event, SpawnEvent):
+                    threads[NullEvent()] = event.spawned # Spawn.
+                    _advance_thread(threads, event, None)
+                    have_ready = True
+                elif isinstance(event, NullEvent):
+                    _advance_thread(threads, event, None)
+                    have_ready = True
 
-                # Advance the old coroutine.
-                _advance_thread(threads, event, None)
+            # Only start the select when nothing else is ready.
+            if not have_ready:
+                break
             
         # Wait and fire.
         for event in _event_select(threads.keys()):
