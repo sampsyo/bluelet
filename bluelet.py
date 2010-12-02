@@ -16,7 +16,12 @@ class WaitableEvent(Event):
 
 class NullEvent(Event):
     """An event that does nothing. Used to simply yield control."""
-    
+
+class ExceptionEvent(Event):
+    """Raise an exception at the yield point. Used internally."""
+    def __init__(self, exc):
+        self.exc = exc
+
 class AcceptEvent(WaitableEvent):
     def __init__(self, listener):
         self.listener = listener
@@ -99,10 +104,21 @@ def _event_select(events):
         ready_events.add(waitable_to_event[waitable])
     return ready_events
 
+def _replace_key(dictionary, old_key, new_key):
+    value = dictionary[old_key]
+    del dictionary[old_key]
+    if new_key is not None:
+        dictionary[new_key] = value
+
+class ThreadException(Exception):
+    def __init__(self, coro, exc):
+        self.coro = coro
+        self.exc = exc
 def _advance_thread(threads, event, value):
     """After an event is fired, run a given coroutine associated with
     it in the threads dict until it yields again. If the coroutine
-    exits, then the thread is removed from the pool.
+    exits, then the thread is removed from the pool. If the coroutine
+    raises an exception, it is reraised in a ThreadException.
     """
     coro = threads[event]
     next_event = None
@@ -111,14 +127,13 @@ def _advance_thread(threads, event, value):
     except StopIteration:
         # Thread is done.
         del threads[event]
-    except:
+    except Exception, exc:
         # Thread raised some other exception.
         del threads[event]
-        raise
+        raise ThreadException(coro, exc)
     else:
         # Replace key with next event produced by the thread.
-        del threads[event]
-        threads[next_event] = coro
+        _replace_key(threads, event, next_event)
 
 def trampoline(root_coro):
     # The "threads" dictionary keeps track of all the currently-
@@ -128,28 +143,43 @@ def trampoline(root_coro):
     
     # Continue advancing threads until root thread exits.
     while root_coro in threads.values():
-        # Look for events that can be run immediately. Currently, our
-        # only non-"blocking" events are spawning and the null event.
-        # Continue running immediate events until nothing is ready.
-        while True:
-            have_ready = False
-            for event in threads.keys():
-                if isinstance(event, SpawnEvent):
-                    threads[NullEvent()] = event.spawned # Spawn.
-                    _advance_thread(threads, event, None)
-                    have_ready = True
-                elif isinstance(event, NullEvent):
-                    _advance_thread(threads, event, None)
-                    have_ready = True
+        try:
+            # Look for events that can be run immediately. Currently,
+            # our only non-"blocking" events are spawning and the
+            # null event. Continue running immediate events until
+            # nothing is ready.
+            while True:
+                have_ready = False
+                for event in threads.keys():
+                    if isinstance(event, SpawnEvent):
+                        threads[NullEvent()] = event.spawned # Spawn.
+                        _advance_thread(threads, event, None)
+                        have_ready = True
+                    elif isinstance(event, NullEvent):
+                        _advance_thread(threads, event, None)
+                        have_ready = True
 
-            # Only start the select when nothing else is ready.
-            if not have_ready:
-                break
+                # Only start the select when nothing else is ready.
+                if not have_ready:
+                    break
             
-        # Wait and fire.
-        for event in _event_select(threads.keys()):
-            value = event.fire()
-            _advance_thread(threads, event, value)
+            # Wait and fire.
+            for event in _event_select(threads.keys()):
+                value = event.fire()
+                _advance_thread(threads, event, value)
+    
+        except ThreadException, te:
+            if te.coro == root_coro:
+                # Raised from root coroutine. Raise back in client code.
+                raise te.exc
+            else:
+                # Not from root. Raise back into root.
+                NotImplemented
+        
+        except Exception, exc:
+            # For instance, KeyboardInterrupt during select(). Raise
+            # into root thread.
+            NotImplemented
 
 def echoer(conn):
     while True:
