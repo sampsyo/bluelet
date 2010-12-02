@@ -160,6 +160,10 @@ def trampoline(root_coro):
                 if not have_ready:
                     break
             
+            # Root may have finished already.
+            if root_coro not in threads:
+                break
+            
             # Wait and fire.
             event2coro = dict((v,k) for k,v in threads.iteritems())
             for event in _event_select(threads.values()):
