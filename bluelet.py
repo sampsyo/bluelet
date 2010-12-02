@@ -138,6 +138,7 @@ def trampoline(root_coro):
     threads = {root_coro: NullEvent()}
     
     # Continue advancing threads until root thread exits.
+    exit_te = None
     while root_coro in threads.keys():
         try:
             # Look for events that can be run immediately. Continue
@@ -173,7 +174,8 @@ def trampoline(root_coro):
         except ThreadException, te:
             if te.coro == root_coro:
                 # Raised from root coroutine. Raise back in client code.
-                raise te.exc
+                exit_te = te
+                break
             else:
                 # Not from root. Raise back into root.
                 threads[root_coro] = ExceptionEvent(te.exc)
@@ -182,6 +184,14 @@ def trampoline(root_coro):
             # For instance, KeyboardInterrupt during select(). Raise
             # into root thread.
             threads[root_coro] = ExceptionEvent(exc)
+
+    # If any threads still remain, kill them.
+    for coro in threads:
+        coro.close()
+
+    # If we're exiting with an exception, raise it in the client.
+    if exit_te:
+        raise exit_te.exc
 
 def echoer(conn):
     while True:
