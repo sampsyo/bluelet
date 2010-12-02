@@ -2,10 +2,14 @@ import socket
 import select
 
 class Event(object):
+    def __init__(self):
+        raise NotImplementedError()
     def waitables(self):
-        raise NotImplementedError()
+        return (), (), ()
     def fire(self):
-        raise NotImplementedError()
+        pass
+    def spawn(self):
+        return ()
     
 class AcceptEvent(Event):
     def __init__(self, listener):
@@ -54,7 +58,8 @@ class Connection(object):
 class SpawnEvent(object):
     def __init__(self, coro):
         self.coro = coro
-        self.event = coro.next()
+    def spawn(self):
+        return self.coro
 def spawn(coro):
     return SpawnEvent(coro)
 
@@ -70,7 +75,9 @@ def trampoline(*coros):
         for event, coro in events.items():
             if isinstance(event, SpawnEvent):
                 # Insert the new coroutine.
-                events[event.event] = event.coro
+                spawned_coro = event.spawn()
+                spawned_event = spawned_coro.next()
+                events[spawned_event] = spawned_coro
                 
                 # Advance the old coroutine.
                 new_event = coro.send(None)
@@ -81,14 +88,12 @@ def trampoline(*coros):
         waitables = {}
         iwait, owait, ewait = [], [], []
         for event, coro in events.items():
-            if not isinstance(event, SpawnEvent):
-                print event
-                i, o, e = event.waitables()
-                iwait += i
-                owait += o
-                ewait += e
-                for waitable in i + o + e:
-                    waitables[waitable] = event
+            i, o, e = event.waitables()
+            iwait += i
+            owait += o
+            ewait += e
+            for waitable in i + o + e:
+                waitables[waitable] = event
         print iwait, owait, ewait
         iready, oready, eready = select.select(iwait, owait, ewait)
     
@@ -108,7 +113,7 @@ def echoer(conn):
         yield conn.write(data)
     conn.close()
 def echoserver():
-    listener = Listener('127.0.0.1', 4920)
+    listener = Listener('127.0.0.1', 4915)
     while True:
         conn = yield listener.accept()
         yield spawn(echoer(conn))
