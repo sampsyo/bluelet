@@ -154,7 +154,7 @@ def _advance_thread(threads, coro, value, is_exc=False):
     else:
         threads[coro] = next_event
 
-def trampoline(root_coro):
+def run(root_coro):
     # The "threads" dictionary keeps track of all the currently-
     # executing coroutines. It maps coroutines to their currenly
     # "blocking" event.
@@ -215,3 +215,26 @@ def trampoline(root_coro):
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
         exit_te.reraise()
+
+def server(host, port, func):
+    def handler(conn):
+        try:
+            # I *really* want "yield from" here. Damned language
+            # changes moratorium...
+            coro = func(conn)
+            value = coro.next()
+            while True:
+                value = coro.send((yield value))
+            func(conn)
+        finally:
+            conn.close()
+            
+    listener = Listener(host, port)
+    try:
+        while True:
+            conn = yield listener.accept()
+            yield spawn(handler(conn))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        listener.close()

@@ -28,4 +28,4 @@ def echoserver():
         listener.close()
 
 if __name__ == '__main__':
-    bluelet.trampoline(echoserver())
+    bluelet.run(echoserver())
