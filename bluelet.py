@@ -1,5 +1,6 @@
 import socket
 import select
+import sys
 
 class Event(object):
     pass
@@ -19,8 +20,8 @@ class NullEvent(Event):
 
 class ExceptionEvent(Event):
     """Raise an exception at the yield point. Used internally."""
-    def __init__(self, exc):
-        self.exc = exc
+    def __init__(self, exc_info):
+        self.exc_info = exc_info
 
 class AcceptEvent(WaitableEvent):
     def __init__(self, listener):
@@ -105,29 +106,32 @@ def _event_select(events):
     return ready_events
 
 class ThreadException(Exception):
-    def __init__(self, coro, exc):
+    def __init__(self, coro, exc_info):
         self.coro = coro
-        self.exc = exc
+        self.exc_info = exc_info
+    def reraise(self):
+        raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
+        
 def _advance_thread(threads, coro, value, is_exc=False):
     """After an event is fired, run a given coroutine associated with
     it in the threads dict until it yields again. If the coroutine
     exits, then the thread is removed from the pool. If the coroutine
     raises an exception, it is reraised in a ThreadException. If
-    is_exc is True, then the value is sent as an exception instead of
-    as a normal value (using throw()).
+    is_exc is True, then the value must be an exc_info tuple and the
+    exception is thrown into the coroutine.
     """
     try:
         if is_exc:
-            next_event = coro.throw(value)
+            next_event = coro.throw(*value)
         else:
             next_event = coro.send(value)
     except StopIteration:
         # Thread is done.
         del threads[coro]
-    except BaseException, exc:
+    except:
         # Thread raised some other exception.
         del threads[coro]
-        raise ThreadException(coro, exc)
+        raise ThreadException(coro, sys.exc_info())
     else:
         threads[coro] = next_event
 
@@ -154,7 +158,7 @@ def trampoline(root_coro):
                         _advance_thread(threads, coro, None)
                         have_ready = True
                     elif isinstance(event, ExceptionEvent):
-                        _advance_thread(threads, coro, event.exc, True)
+                        _advance_thread(threads, coro, event.exc_info, True)
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
@@ -178,12 +182,12 @@ def trampoline(root_coro):
                 break
             else:
                 # Not from root. Raise back into root.
-                threads[root_coro] = ExceptionEvent(te.exc)
+                threads[root_coro] = ExceptionEvent(te.exc_info)
         
-        except BaseException, exc:
+        except:
             # For instance, KeyboardInterrupt during select(). Raise
             # into root thread.
-            threads[root_coro] = ExceptionEvent(exc)
+            threads[root_coro] = ExceptionEvent(sys.exc_info())
 
     # If any threads still remain, kill them.
     for coro in threads:
@@ -191,16 +195,20 @@ def trampoline(root_coro):
 
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
-        raise exit_te.exc
+        exit_te.reraise()
 
 def echoer(conn):
-    while True:
-        data = yield conn.read(1024)
-        if not data:
-            break
-        print 'Read from %s: %s' % (conn.addr[0], repr(data))
-        yield conn.write(data)
-    conn.close()
+    print 'Connected: %s' % conn.addr[0]
+    try:
+        while True:
+            data = yield conn.read(1024)
+            if not data:
+                break
+            print 'Read from %s: %s' % (conn.addr[0], repr(data))
+            yield conn.write(data)
+    finally:
+        print 'Disconnected: %s' % conn.addr[0]
+        conn.close()
 def echoserver():
     listener = Listener('127.0.0.1', 4915)
     try:
