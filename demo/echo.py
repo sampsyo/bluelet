@@ -1,5 +1,5 @@
 import sys
-sys.path[0:0] = '..'
+sys.path.insert(0, '..')
 import bluelet
 
 def echoer(conn):
