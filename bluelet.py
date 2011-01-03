@@ -226,22 +226,21 @@ def run(root_coro):
                 advance_thread(event2coro[event], value)
     
         except ThreadException, te:
-            if te.coro == root_coro:
-                # Raised from root coroutine. Raise back in client code.
+            # Exception raised from inside a thread.
+            event = ExceptionEvent(te.exc_info)
+            if te.coro in delegators:
+                # The thread is a delegate. Raise exception in its
+                # delegator.
+                threads[delegators[te.coro]] = event
+            else:
+                # The thread is root-level. Raise in client code.
                 exit_te = te
                 break
-            else:
-                # Not from root. Raise back into delegator or root.
-                event = ExceptionEvent(te.exc_info)
-                if te.coro in delegators:
-                    threads[delegators[te.coro]] = event
-                else:
-                    threads[root_coro] = event
         
         except:
             # For instance, KeyboardInterrupt during select(). Raise
-            # into root thread.
-            threads[root_coro] = ExceptionEvent(sys.exc_info())
+            # into root thread and terminate others.
+            threads = {root_coro: ExceptionEvent(sys.exc_info())}
 
     # If any threads still remain, kill them.
     for coro in threads:
