@@ -9,7 +9,6 @@ def child():
     yield bluelet.null()
     print 'Child ending.'
     yield bluelet.end(42)
-
 def parent():
     print 'Parent started.'
     yield bluelet.null()
@@ -18,5 +17,17 @@ def parent():
     print 'Child returned:', repr(result)
     print 'Parent ending.'
 
+def exc_child():
+    yield bluelet.null()
+    raise Exception()
+def exc_parent():
+    try:
+        yield bluelet.call(exc_child())
+    except Exception, exc:
+        print 'Parent caught:', repr(exc)
+def exc_grandparent():
+    yield bluelet.spawn(exc_parent())
+
 if __name__ == '__main__':
     bluelet.run(parent())
+    bluelet.run(exc_grandparent())

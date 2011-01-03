@@ -187,7 +187,7 @@ def run(root_coro):
 
     # Continue advancing threads until root thread exits.
     exit_te = None
-    while root_coro in threads.keys():
+    while threads:
         try:
             # Look for events that can be run immediately. Continue
             # running immediate events until nothing is ready.
@@ -219,11 +219,6 @@ def run(root_coro):
                 if not have_ready:
                     break
             
-            # Root may have finished already.
-            if root_coro not in threads and \
-                    root_coro not in delegators.values():
-                break
-
             # Wait and fire.
             event2coro = dict((v,k) for k,v in threads.iteritems())
             for event in _event_select(threads.values()):
@@ -236,8 +231,12 @@ def run(root_coro):
                 exit_te = te
                 break
             else:
-                # Not from root. Raise back into root.
-                threads[root_coro] = ExceptionEvent(te.exc_info)
+                # Not from root. Raise back into delegator or root.
+                event = ExceptionEvent(te.exc_info)
+                if te.coro in delegators:
+                    threads[delegators[te.coro]] = event
+                else:
+                    threads[root_coro] = event
         
         except:
             # For instance, KeyboardInterrupt during select(). Raise
