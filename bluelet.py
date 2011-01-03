@@ -5,14 +5,12 @@ asyncore.
 
 Bluelet: easy concurrency without all the messy parallelism.
 """
-
-# To-do:
-# - Notions of "parent" threads. Exceptions in children should be
-#   propagated to parents.
-
 import socket
 import select
 import sys
+
+
+# Basic events used for thread scheduling.
 
 class Event(object):
     pass
@@ -31,109 +29,26 @@ class ValueEvent(Event):
     """An event that does nothing but return a fixed value."""
     def __init__(self, value):
         self.value = value
-def null():
-    return ValueEvent(None)
 
 class ExceptionEvent(Event):
     """Raise an exception at the yield point. Used internally."""
     def __init__(self, exc_info):
         self.exc_info = exc_info
 
-class AcceptEvent(WaitableEvent):
-    def __init__(self, listener):
-        self.listener = listener
-    def waitables(self):
-        return (self.listener.sock,), (), ()
-    def fire(self):
-        sock, addr = self.listener.sock.accept()
-        return Connection(sock, addr)
-class Listener(object):
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((host, port))
-        self.sock.listen(5)
-    def accept(self):
-        return AcceptEvent(self)
-    def close(self):
-        self.sock.close()
-
-class ReceiveEvent(WaitableEvent):
-    def __init__(self, conn, bufsize):
-        self.conn = conn
-        self.bufsize = bufsize
-    def waitables(self):
-        return (self.conn.sock,), (), ()
-    def fire(self):
-        return self.conn.sock.recv(self.bufsize)
-class SendEvent(WaitableEvent):
-    def __init__(self, conn, data, sendall=False):
-        self.conn = conn
-        self.data = data
-        self.sendall = sendall
-    def waitables(self):
-        return (), (self.conn.sock,), ()
-    def fire(self):
-        if self.sendall:
-            return self.conn.sock.sendall(self.data)
-        else:
-            return self.conn.sock.send(self.data)
-class Connection(object):
-    def __init__(self, sock, addr):
-        self.sock = sock
-        self.addr = addr
-        self._buf = ''
-    def close(self):
-        self.sock.close()
-    def recv(self, size):
-        if self._buf:
-            # We already have data read previously.
-            out = self._buf[:size]
-            self._buf = self._buf[size:]
-            return ValueEvent(out)
-        else:
-            return ReceiveEvent(self, size)
-    def send(self, data):
-        return SendEvent(self, data)
-    def sendall(self, data):
-        return SendEvent(self, data, True)
-    def readline(self, terminator="\n", bufsize=1024):
-        def line_reader():
-            while True:
-                if terminator in self._buf:
-                    line, self._buf = self._buf.split(terminator, 1)
-                    line += terminator
-                    yield ReturnEvent(line)
-                    break
-                data = yield self.recv(bufsize)
-                if data:
-                    self._buf += data
-                else:
-                    line = self._buf
-                    self._buf = ''
-                    yield ReturnEvent(line)
-                    break
-        return DelegationEvent(line_reader())
-
 class SpawnEvent(object):
     def __init__(self, coro):
         self.spawned = coro
-def spawn(coro):
-    return SpawnEvent(coro)
 
 class DelegationEvent(object):
     def __init__(self, coro):
         self.spawned = coro
-def call(coro):
-    return DelegationEvent(coro)
 
 class ReturnEvent(object):
     def __init__(self, value):
         self.value = value
-def end(value = None):
-    return ReturnEvent(value)
+
+
+# Core logic for executing and scheduling threads.
 
 def _event_select(events):
     """Perform a select() over all the Events provided, returning the
@@ -171,7 +86,6 @@ class ThreadException(Exception):
     def reraise(self):
         raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
         
-
 def run(root_coro):
     # The "threads" dictionary keeps track of all the currently-
     # executing coroutines. It maps coroutines to their currenly
@@ -274,6 +188,106 @@ def run(root_coro):
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
         exit_te.reraise()
+
+
+# Sockets and their associated events.
+
+class AcceptEvent(WaitableEvent):
+    def __init__(self, listener):
+        self.listener = listener
+    def waitables(self):
+        return (self.listener.sock,), (), ()
+    def fire(self):
+        sock, addr = self.listener.sock.accept()
+        return Connection(sock, addr)
+class Listener(object):
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind((host, port))
+        self.sock.listen(5)
+    def accept(self):
+        return AcceptEvent(self)
+    def close(self):
+        self.sock.close()
+
+class ReceiveEvent(WaitableEvent):
+    def __init__(self, conn, bufsize):
+        self.conn = conn
+        self.bufsize = bufsize
+    def waitables(self):
+        return (self.conn.sock,), (), ()
+    def fire(self):
+        return self.conn.sock.recv(self.bufsize)
+class SendEvent(WaitableEvent):
+    def __init__(self, conn, data, sendall=False):
+        self.conn = conn
+        self.data = data
+        self.sendall = sendall
+    def waitables(self):
+        return (), (self.conn.sock,), ()
+    def fire(self):
+        if self.sendall:
+            return self.conn.sock.sendall(self.data)
+        else:
+            return self.conn.sock.send(self.data)
+class Connection(object):
+    def __init__(self, sock, addr):
+        self.sock = sock
+        self.addr = addr
+        self._buf = ''
+    def close(self):
+        self.sock.close()
+    def recv(self, size):
+        if self._buf:
+            # We already have data read previously.
+            out = self._buf[:size]
+            self._buf = self._buf[size:]
+            return ValueEvent(out)
+        else:
+            return ReceiveEvent(self, size)
+    def send(self, data):
+        return SendEvent(self, data)
+    def sendall(self, data):
+        return SendEvent(self, data, True)
+    def readline(self, terminator="\n", bufsize=1024):
+        def line_reader():
+            while True:
+                if terminator in self._buf:
+                    line, self._buf = self._buf.split(terminator, 1)
+                    line += terminator
+                    yield ReturnEvent(line)
+                    break
+                data = yield self.recv(bufsize)
+                if data:
+                    self._buf += data
+                else:
+                    line = self._buf
+                    self._buf = ''
+                    yield ReturnEvent(line)
+                    break
+        return DelegationEvent(line_reader())
+
+
+# Public interface for threads; each returns an event object that
+# can immediately be "yield"ed.
+
+def null():
+    return ValueEvent(None)
+
+def spawn(coro):
+    return SpawnEvent(coro)
+
+def call(coro):
+    return DelegationEvent(coro)
+
+def end(value = None):
+    return ReturnEvent(value)
+
+
+# Convenience function for running socket servers.
 
 def server(host, port, func):
     def handler(conn):
