@@ -27,8 +27,12 @@ class WaitableEvent(Event):
     def fire(self):
         pass
 
-class NullEvent(Event):
-    """An event that does nothing. Used to simply yield control."""
+class ValueEvent(Event):
+    """An event that does nothing but return a fixed value."""
+    def __init__(self, value):
+        self.value = value
+def null():
+    return ValueEvent(None)
 
 class ExceptionEvent(Event):
     """Raise an exception at the yield point. Used internally."""
@@ -95,6 +99,18 @@ class SpawnEvent(object):
 def spawn(coro):
     return SpawnEvent(coro)
 
+class DelegationEvent(object):
+    def __init__(self, coro):
+        self.spawned = coro
+def call(coro):
+    return DelegationEvent(coro)
+
+class ReturnEvent(object):
+    def __init__(self, value):
+        self.value = value
+def end(value = None):
+    return ReturnEvent(value)
+
 def _event_select(events):
     """Perform a select() over all the Events provided, returning the
     ones ready to be fired.
@@ -131,35 +147,44 @@ class ThreadException(Exception):
     def reraise(self):
         raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
         
-def _advance_thread(threads, coro, value, is_exc=False):
-    """After an event is fired, run a given coroutine associated with
-    it in the threads dict until it yields again. If the coroutine
-    exits, then the thread is removed from the pool. If the coroutine
-    raises an exception, it is reraised in a ThreadException. If
-    is_exc is True, then the value must be an exc_info tuple and the
-    exception is thrown into the coroutine.
-    """
-    try:
-        if is_exc:
-            next_event = coro.throw(*value)
-        else:
-            next_event = coro.send(value)
-    except StopIteration:
-        # Thread is done.
-        del threads[coro]
-    except:
-        # Thread raised some other exception.
-        del threads[coro]
-        raise ThreadException(coro, sys.exc_info())
-    else:
-        threads[coro] = next_event
 
 def run(root_coro):
     # The "threads" dictionary keeps track of all the currently-
     # executing coroutines. It maps coroutines to their currenly
     # "blocking" event.
-    threads = {root_coro: NullEvent()}
+    threads = {root_coro: ValueEvent(None)}
+
+    # When one thread delegates to another thread, its execution is
+    # suspended until the delegate completes. This dictionary keeps
+    # track of each running delegate's delegator.
+    delegators = {}
     
+    def advance_thread(coro, value, is_exc=False):
+        """After an event is fired, run a given coroutine associated with
+        it in the threads dict until it yields again. If the coroutine
+        exits, then the thread is removed from the pool. If the coroutine
+        raises an exception, it is reraised in a ThreadException. If
+        is_exc is True, then the value must be an exc_info tuple and the
+        exception is thrown into the coroutine.
+        """
+        try:
+            if is_exc:
+                next_event = coro.throw(*value)
+            else:
+                next_event = coro.send(value)
+        except StopIteration:
+            # Thread is done.
+            del threads[coro]
+            if coro in delegators:
+                # Resume delegator.
+                threads[delegators[coro]] = ValueEvent(None)
+        except:
+            # Thread raised some other exception.
+            del threads[coro]
+            raise ThreadException(coro, sys.exc_info())
+        else:
+            threads[coro] = next_event
+
     # Continue advancing threads until root thread exits.
     exit_te = None
     while root_coro in threads.keys():
@@ -170,15 +195,24 @@ def run(root_coro):
                 have_ready = False
                 for coro, event in threads.items():
                     if isinstance(event, SpawnEvent):
-                        threads[event.spawned] = NullEvent() # Spawn.
-                        _advance_thread(threads, coro, None)
+                        threads[event.spawned] = ValueEvent(None) # Spawn.
+                        advance_thread(coro, None)
                         have_ready = True
-                    elif isinstance(event, NullEvent):
-                        _advance_thread(threads, coro, None)
+                    elif isinstance(event, ValueEvent):
+                        advance_thread(coro, event.value)
                         have_ready = True
                     elif isinstance(event, ExceptionEvent):
-                        _advance_thread(threads, coro, event.exc_info, True)
+                        advance_thread(coro, event.exc_info, True)
                         have_ready = True
+                    elif isinstance(event, DelegationEvent):
+                        threads[event.spawned] = ValueEvent(None) # Spawn.
+                        delegators[event.spawned] = coro
+                        have_ready = True
+                    elif isinstance(event, ReturnEvent):
+                        # Thread is done.
+                        del threads[coro]
+                        if coro in delegators:
+                            threads[delegators[coro]] = ValueEvent(event.value)
 
                 # Only start the select when nothing else is ready.
                 if not have_ready:
@@ -192,7 +226,7 @@ def run(root_coro):
             event2coro = dict((v,k) for k,v in threads.iteritems())
             for event in _event_select(threads.values()):
                 value = event.fire()
-                _advance_thread(threads, event2coro[event], value)
+                advance_thread(event2coro[event], value)
     
         except ThreadException, te:
             if te.coro == root_coro:
