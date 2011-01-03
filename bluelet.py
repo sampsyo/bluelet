@@ -8,6 +8,7 @@ Bluelet: easy concurrency without all the messy parallelism.
 import socket
 import select
 import sys
+import types
 
 
 # Basic events used for thread scheduling.
@@ -278,9 +279,13 @@ def null():
     return ValueEvent(None)
 
 def spawn(coro):
+    if not isinstance(coro, types.GeneratorType):
+        raise ValueError('%s is not a coroutine' % str(coro))
     return SpawnEvent(coro)
 
 def call(coro):
+    if not isinstance(coro, types.GeneratorType):
+        raise ValueError('%s is not a coroutine' % str(coro))
     return DelegationEvent(coro)
 
 def end(value = None):
