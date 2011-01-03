@@ -205,6 +205,7 @@ def run(root_coro):
                         advance_thread(coro, event.exc_info, True)
                         have_ready = True
                     elif isinstance(event, DelegationEvent):
+                        del threads[coro] # Suspend.
                         threads[event.spawned] = ValueEvent(None) # Spawn.
                         delegators[event.spawned] = coro
                         have_ready = True
@@ -219,9 +220,10 @@ def run(root_coro):
                     break
             
             # Root may have finished already.
-            if root_coro not in threads:
+            if root_coro not in threads and \
+                    root_coro not in delegators.values():
                 break
-            
+
             # Wait and fire.
             event2coro = dict((v,k) for k,v in threads.iteritems())
             for event in _event_select(threads.values()):
@@ -253,13 +255,7 @@ def run(root_coro):
 def server(host, port, func):
     def handler(conn):
         try:
-            # I *really* want "yield from" here. Damned language
-            # changes moratorium...
-            coro = func(conn)
-            value = coro.next()
-            while True:
-                value = coro.send((yield value))
-            func(conn)
+            yield call(func(conn))
         finally:
             conn.close()
             
