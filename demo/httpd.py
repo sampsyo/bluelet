@@ -5,8 +5,7 @@ import bluelet
 
 ROOT = '.'
 
-def parse_request(s):
-    lines = s.split('\r\n')
+def parse_request(lines):
     method, path, version = lines.pop(0).split(None, 2)
     headers = {}
     for line in lines:
@@ -47,14 +46,13 @@ def respond(method, path, headers):
 
 def webrequest(conn):
     # Get the HTTP request.
-    request = ''
+    request = []
     while True:
-        data = yield conn.recv(1024)
-        if not data:
+        line = (yield conn.readline('\r\n')).strip()
+        if not line:
+            # End of headers.
             break
-        request += data
-        if '\r\n\r\n' in data:
-            break
+        request.append(line)
 
     # Parse and log the request and get the response values.
     method, path, headers = parse_request(request)

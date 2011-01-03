@@ -84,14 +84,38 @@ class Connection(object):
     def __init__(self, sock, addr):
         self.sock = sock
         self.addr = addr
+        self._buf = ''
     def close(self):
         self.sock.close()
-    def recv(self, bufsize):
-        return ReceiveEvent(self, bufsize)
+    def recv(self, size):
+        if self._buf:
+            # We already have data read previously.
+            out = self._buf[:size]
+            self._buf = self._buf[size:]
+            return ValueEvent(out)
+        else:
+            return ReceiveEvent(self, size)
     def send(self, data):
         return SendEvent(self, data)
     def sendall(self, data):
         return SendEvent(self, data, True)
+    def readline(self, terminator="\n", bufsize=1024):
+        def line_reader():
+            while True:
+                if terminator in self._buf:
+                    line, self._buf = self._buf.split(terminator, 1)
+                    line += terminator
+                    yield ReturnEvent(line)
+                    break
+                data = yield self.recv(bufsize)
+                if data:
+                    self._buf += data
+                else:
+                    line = self._buf
+                    self._buf = ''
+                    yield ReturnEvent(line)
+                    break
+        return DelegationEvent(line_reader())
 
 class SpawnEvent(object):
     def __init__(self, coro):
@@ -214,6 +238,7 @@ def run(root_coro):
                         del threads[coro]
                         if coro in delegators:
                             threads[delegators[coro]] = ValueEvent(event.value)
+                        have_ready = True
 
                 # Only start the select when nothing else is ready.
                 if not have_ready:
