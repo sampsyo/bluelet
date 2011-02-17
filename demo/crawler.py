@@ -1,3 +1,8 @@
+"""Demonstrates various ways of writing an application that makes
+many URL requests. This is currently a BAD EXAMPLE for bluelet as
+it uses urllib, which is synchronous and provides no speedup for
+bluelet. If only the standard library had a non-blocking HTTP module.
+"""
 import sys
 import urllib
 import json
