@@ -145,6 +145,7 @@ def run(root_coro):
             if coro in delegators:
                 # Resume delegator.
                 threads[delegators[coro]] = ValueEvent(None)
+                del delegators[coro]
         except:
             # Thread raised some other exception.
             del threads[coro]
@@ -181,12 +182,13 @@ def run(root_coro):
                         del threads[coro]
                         if coro in delegators:
                             threads[delegators[coro]] = ValueEvent(event.value)
+                            del delegators[coro]
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
                 if not have_ready:
                     break
-            
+
             # Wait and fire.
             event2coro = dict((v,k) for k,v in threads.iteritems())
             for event in _event_select(threads.values()):
@@ -200,6 +202,7 @@ def run(root_coro):
                 # The thread is a delegate. Raise exception in its
                 # delegator.
                 threads[delegators[te.coro]] = event
+                del delegators[te.coro]
             else:
                 # The thread is root-level. Raise in client code.
                 exit_te = te
