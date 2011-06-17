@@ -306,7 +306,7 @@ class Connection(object):
                     line += terminator
                     yield ReturnEvent(line)
                     break
-                data = yield self.recv(bufsize)
+                data = yield ReceiveEvent(self, bufsize)
                 if data:
                     self._buf += data
                 else:
