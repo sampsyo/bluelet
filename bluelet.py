@@ -356,6 +356,11 @@ def read(fd, bufsize = None):
 def write(fd, data):
     return WriteEvent(fd, data)
 
+def connect(host, port):
+    addr = (host, port)
+    sock = socket.create_connection(addr)
+    return ValueEvent(Connection(sock, addr))
+
 
 # Convenience function for running socket servers.
 

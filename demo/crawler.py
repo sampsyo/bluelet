@@ -1,7 +1,10 @@
 """Demonstrates various ways of writing an application that makes
-many URL requests. This is currently a BAD EXAMPLE for bluelet as
-it uses urllib, which is synchronous and provides no speedup for
-bluelet. If only the standard library had a non-blocking HTTP module.
+many URL requests.
+
+Unfortunately, because the Python standard library only includes
+blocking HTTP libraries, taking advantage of asynchronous I/O currently
+entails writing a custom HTTP client. This example includes a very
+simple, GET-only HTTP requester.
 """
 import sys
 import urllib
@@ -9,12 +12,89 @@ import json
 import threading
 import multiprocessing
 import time
+import urlparse
 sys.path.insert(0, '..')
 import bluelet
 
 URL = 'http://api.twitter.com/1/statuses/user_timeline.json' \
       '?screen_name=%s&count=1'
 USERNAMES = ('samps', 'b33ts', 'ev', 'biz', 'twitter')
+
+class AsyncHTTPClient(object):
+    """A basic Bluelet-based asynchronous HTTP client. Only supports
+    very simple GET queries.
+    """
+    def __init__(self, host, port, path):
+        self.host = host
+        self.port = port
+        self.path = path
+
+    def headers(self):
+        """Returns the HTTP headers for this request."""
+        heads = [
+            "GET %s HTTP/1.1" % self.path,
+            "Host: %s" % self.host,
+            "User-Agent: bluelet-example",
+        ]
+        return "\r\n".join(heads) + "\r\n\r\n"
+
+
+    # Convenience methods.
+
+    @classmethod
+    def from_url(cls, url):
+        """Construct a request for the specified URL."""
+        res = urlparse.urlparse(url)
+        path = res.path
+        if res.query:
+            path += '?' + res.query
+        return cls(res.hostname, res.port or 80, path)
+
+    @classmethod
+    def fetch(cls, url):
+        """Fetch content from an HTTP URL. Returns an event suitable
+        for yielding from a Bluelet coroutine.
+        """
+        def fetcher():
+            client = cls.from_url(url)
+            yield bluelet.call(client._connect())
+            yield bluelet.call(client._request())
+            status, headers, body = yield bluelet.call(client._read())
+            yield bluelet.end(body)
+        return bluelet.call(fetcher())
+    
+
+    # Internal coroutines.
+
+    def _connect(self):
+        self.conn = yield bluelet.connect(self.host, self.port)
+
+    def _request(self):
+        yield self.conn.sendall(self.headers())
+
+    def _read(self):
+        buf = []
+        while True:
+            data = yield self.conn.recv(4096)
+            if not data:
+                break
+            buf.append(data)
+        response = ''.join(buf)
+
+        # Parse response.
+        headers, body = response.split("\r\n\r\n", 1)
+        headers = headers.split("\r\n")
+        status = headers.pop(0)
+        version, code, message = status.split(' ', 2)
+        headervals = {}
+        for header in headers:
+            key, value = header.split(": ")
+            headervals[key] = value
+
+        yield bluelet.end((int(code), headers, body))
+
+
+# Various ways of writing the crawler.
 
 def run_bluelet():
     # No lock is required guarding the shared variable because only
@@ -23,8 +103,7 @@ def run_bluelet():
 
     def fetch(username):
         url = URL % username
-        f = urllib.urlopen(url)
-        data = yield bluelet.read(f)
+        data = yield AsyncHTTPClient.fetch(url)
         tweets[username] = json.loads(data)[0]['text']
 
     def crawl():
@@ -84,6 +163,9 @@ def run_processes():
     pool = multiprocessing.Pool(len(USERNAMES))
     tweet_pairs = pool.map(_process_fetch, USERNAMES)
     return dict(tweet_pairs)
+
+
+# Main driver.
 
 if __name__ == '__main__':
     strategies = {
