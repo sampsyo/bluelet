@@ -153,6 +153,9 @@ def run(root_coro):
             del threads[coro]
             raise ThreadException(coro, sys.exc_info())
         else:
+            if isinstance(next_event, types.GeneratorType):
+                # Automatically invoke sub-coroutines.
+                next_event = DelegationEvent(next_event)
             threads[coro] = next_event
 
     # Continue advancing threads until root thread exits.

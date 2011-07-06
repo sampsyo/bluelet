@@ -52,16 +52,14 @@ class AsyncHTTPClient(object):
 
     @classmethod
     def fetch(cls, url):
-        """Fetch content from an HTTP URL. Returns an event suitable
-        for yielding from a Bluelet coroutine.
+        """Fetch content from an HTTP URL. This is a coroutine suitable
+        for yielding to bluelet.
         """
-        def fetcher():
-            client = cls.from_url(url)
-            yield bluelet.call(client._connect())
-            yield bluelet.call(client._request())
-            status, headers, body = yield bluelet.call(client._read())
-            yield bluelet.end(body)
-        return bluelet.call(fetcher())
+        client = cls.from_url(url)
+        yield client._connect()
+        yield client._request()
+        status, headers, body = yield client._read()
+        yield bluelet.end(body)
     
 
     # Internal coroutines.
