@@ -3,7 +3,7 @@ Bluelet
 
 Bluelet is a simple, pure-Python solution for writing intelligible asynchronous socket applications. It uses `PEP 342 coroutines`_ to make concurrent I/O look and act like sequential programming.
 
-In this way, it is similar to the `Greenlet`_ green-threads library and its associated packages `Eventlet`_ and `Gevent`_. Bluelet has a simpler, 100% Python implementation that comes at the cost of flexibility and performance when compared to Greenlet-based solutions. However, it should be sufficient for many applications that don't need serious scalability; it can be thought of as a less-horrible alternative to `asyncore`_ or an asynchronous replacement for `SocketServer`_.
+In this way, it is similar to the `Greenlet`_ green-threads library and its associated packages `Eventlet`_ and `Gevent`_. Bluelet has a simpler, 100% Python implementation that comes at the cost of flexibility and performance when compared to Greenlet-based solutions. However, it should be sufficient for many applications that don't need serious scalability; it can be thought of as a less-horrible alternative to `asyncore`_ or an asynchronous replacement for `SocketServer`_ (and more).
 
 .. _PEP 342 coroutines: http://www.python.org/dev/peps/pep-0342/
 .. _asyncore: http://docs.python.org/library/asyncore.html
@@ -67,6 +67,69 @@ Bluelet (like other coroutine-based async I/O libraries) lets you write code tha
   bluelet.run(bluelet.server('', 4915, echoer))
 
 Except for the ``yield`` keyword, note that this code appears very similar to our first, sequential version. (Bluelet also takes care of the boilerplate socket setup code.) This works because ``echoer`` is a Python coroutine: everywhere it says ``yield``, it temporarily suspends its execution. Bluelet's scheduler then takes over and waits for events, just like asyncore. When a socket event happens, the coroutine is resumed at the point it yielded. So there's no need to break up your code; it can all appear as a single code block. Neat!
+
+Other Examples
+--------------
+
+This repository also includes a few less-trivial examples of Bluelet's
+programming model.
+
+httpd
+'''''
+
+The ``httpd.py`` example implements a very simple Web server in less than 100
+lines of Python. Start the program and navigate to
+http://127.0.0.1:8088/ in your Web browser to see it
+in action.
+
+This example demonstrates the implementation of a network server that is
+slightly more complicated than the echo server described above. Again, the code
+for the server just looks like a sequential, one-connection-at-a-time program
+with ``yield`` expressions inserted---but it runs concurrently and can service
+many requests at the same time.
+
+
+crawler
+'''''''
+
+``crawler.py`` demonstrates how Bluelet can be used for *client* code in
+addition to just servers. It implements a very simple asynchronous HTTP client
+and makes a series of requests for tweets from the Twitter API.
+
+The ``crawler.py`` program actually implements the same set of requests four
+times to compare their performance:
+
+* The sequential version makes one request, waits for the response, and then
+  makes the next request.
+* The "threaded" version spawns one OS thread per request and makes all the
+  requests concurrently.
+* The "processes" version uses Python's `multiprocessing`_ module to make
+  each request in a separate OS process. It uses the multiprocessing module's
+  convenient parallel ``map`` implementation.
+* The Bluelet version runs each HTTP request in a Bluelet coroutine. The
+  requests run concurrently but they use a single thread in a single process.
+
+.. _multiprocessing: http://docs.python.org/library/multiprocessing.html
+
+The sequential implementation will almost certainly be the slowest. The three
+other implementations are all concurrent and should have roughly the same
+performance. The thread- and process-based implementations incur spawning
+overhead; the multiprocessing implementation could see advantages by avoiding
+the GIL (but this is unlikely to be significant as the network latency is
+dominant); the Bluelet implementation has no spawning overhead but has some
+scheduling logic that may slow things down.
+
+``crawler.py`` reports the runtime of each implementation. On my machine, this is
+what I see::
+
+  sequential: 4.62 seconds
+  threading: 0.81 seconds
+  multiprocessing: 0.13 seconds
+  bluelet: 0.20 seconds
+
+The numbers are noisy and somewhat inconsistent across runs, but in general we
+see that Bluelet is competitive with the other two concurrent implementations
+and that the sequential version is much slower.
 
 Authors
 -------

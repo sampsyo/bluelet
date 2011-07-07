@@ -18,7 +18,7 @@ import bluelet
 
 URL = 'http://api.twitter.com/1/statuses/user_timeline.json' \
       '?screen_name=%s&count=1'
-USERNAMES = ('samps', 'b33ts', 'ev', 'biz', 'twitter')
+USERNAMES = ('samps', 'b33ts', 'twitter', 'twitterapi', 'Support')
 
 class AsyncHTTPClient(object):
     """A basic Bluelet-based asynchronous HTTP client. Only supports

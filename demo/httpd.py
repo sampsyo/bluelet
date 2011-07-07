@@ -1,3 +1,6 @@
+"""A simple Web server built with Bluelet to support concurrent requests
+in a single OS thread.
+"""
 import sys
 import os
 sys.path.insert(0, '..')
@@ -6,6 +9,7 @@ import bluelet
 ROOT = '.'
 
 def parse_request(lines):
+    """Parse an HTTP request."""
     method, path, version = lines.pop(0).split(None, 2)
     headers = {}
     for line in lines:
@@ -16,6 +20,7 @@ def parse_request(lines):
     return method, path, headers
 
 def respond(method, path, headers):
+    """Generate an HTTP response for a parsed request."""
     # Strip leading / and add prefix.
     if path.startswith('/') and len(path) > 0:
         filename = path[1:]
@@ -45,6 +50,7 @@ def respond(method, path, headers):
                '<body><h1>Not found.</h1></body></html>'
 
 def webrequest(conn):
+    """A Bluelet coroutine implementing an HTTP server."""
     # Get the HTTP request.
     request = []
     while True:
@@ -67,4 +73,5 @@ def webrequest(conn):
     yield conn.sendall(content)
 
 if __name__ == '__main__':
+    print 'http://127.0.0.1:8088/'
     bluelet.run(bluelet.server('', 8088, webrequest))

@@ -1,3 +1,6 @@
+"""A demonstration of Bluelet's approach to invoking (delegating to)
+sub-coroutines and spawning child coroutines.
+"""
 import sys
 sys.path.insert(0, '..')
 import bluelet
@@ -13,7 +16,7 @@ def parent():
     print 'Parent started.'
     yield bluelet.null()
     print 'Parent resumed.'
-    result = yield bluelet.call(child())
+    result = yield child()
     print 'Child returned:', repr(result)
     print 'Parent ending.'
 
@@ -22,7 +25,7 @@ def exc_child():
     raise Exception()
 def exc_parent():
     try:
-        yield bluelet.call(exc_child())
+        yield exc_child()
     except Exception, exc:
         print 'Parent caught:', repr(exc)
 def exc_grandparent():
