@@ -187,7 +187,7 @@ green-threads capabilities:
   Pedantically, the current coroutine is suspended and ``coro`` is started up;
   when ``coro`` finishes, Bluelet returns control to the current coroutine and
   returns the value returned by ``coro`` (see ``bluelet.end``, below). The
-  effect is similar to 
+  effect is similar to Python's proposed `"yield from" syntax`_.
 * ``res = yield coro())``: Shorthand for the above. Just yielding any generator
   object is equivalent to using ``bluelet.call``.
 * ``yield bluelet.spawn(coro())``: Like ``call`` but makes the child coroutine
@@ -201,6 +201,8 @@ green-threads capabilities:
   makes it possible to let another coroutine run if one is waiting to. It's
   useful if you have to do a long-running, blocking operation in a coroutine and
   want to give other green threads a chance to get work done.
+
+.. _"yield from" syntax: http://www.python.org/dev/peps/pep-0380/
 
 Together, this small set of ``yield`` statements are enough to build any
 application that can benefit from simple, pure-Python collaborative
