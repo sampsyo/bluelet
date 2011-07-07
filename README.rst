@@ -85,9 +85,8 @@ in action.
 This example demonstrates the implementation of a network server that is
 slightly more complicated than the echo server described above. Again, the code
 for the server just looks like a sequential, one-connection-at-a-time program
-with ``yield`` expressions inserted---but it runs concurrently and can service
+with ``yield`` expressions inserted—but it runs concurrently and can service
 many requests at the same time.
-
 
 crawler
 '''''''
@@ -119,8 +118,8 @@ the GIL (but this is unlikely to be significant as the network latency is
 dominant); the Bluelet implementation has no spawning overhead but has some
 scheduling logic that may slow things down.
 
-``crawler.py`` reports the runtime of each implementation. On my machine, this is
-what I see::
+``crawler.py`` reports the runtime of each implementation. On my machine, this
+is what I see::
 
   sequential: 4.62 seconds
   threading: 0.81 seconds
@@ -131,9 +130,86 @@ The numbers are noisy and somewhat inconsistent across runs, but in general we
 see that Bluelet is competitive with the other two concurrent implementations
 and that the sequential version is much slower.
 
+Basic Usage
+-----------
+
+To get started with Bluelet, you just write a coroutine that yield Bluelet
+events and invoke it using ``bluelet.run``::
+
+    import bluelet
+    def coro():
+        yield bluelet.end()
+    bluelet.run(coro())
+
+``bluelet.run`` takes a generator (a running coroutine) as an argument and runs
+it to completion. It's the gateway into the Bluelet scheduling universe.
+Remember that, in Python, any "function" with a ``yield`` expression in it is a
+coroutine—that's what makes ``coro`` special.
+
+The key to programming with Bluelet is to use ``yield`` expressions where you
+would typically do anything that blocks or you need to interact with the Bluelet
+scheduler. Technically, every ``yield`` statement sends an "event" object to the
+Bluelet scheduler that's running it, but you can usually get by without thinking
+about event objects at all. Here are some of the Bluelet ``yield``
+expressions that make up Bluelet's network socket API:
+
+* ``conn = yield bluelet.connect(host, port)``: Connects to a network host and
+  returns a "connection" object usable for communication.
+* ``yield conn.send(data)``: Send a string of data over the connection. Returns
+  the amount of data actually sent.
+* ``yield conn.sendall(data)``: Send the string of data, continuously sending
+  chunks of the data until it is all sent.
+* ``data = yield conn.recv(bufsize)``: Receive data from the connection.
+* ``data = yield conn.readline(delim="\n")``: Read a line of data from the
+  connection, where lines are delimited by ``delim``.
+* ``server = bluelet.Listener(host, port)``: Constructs a Bluelet server
+  object that can be used to asynchronously wait for connections. (There's no
+  ``yield`` here; this just a constructor.)
+* ``conn = yield server.accept()``: Asynchronously wait for a connection to the
+  server, returning a connection object as above.
+
+These tools are enough to build asynchronous client and server applications with
+Bluelet. There's also one convenient off-the-shelf coroutine, called
+``bluelet.server``, that helps you get off the ground with a server application
+quickly. This line::
+
+    bluelet.run(bluelet.server(host, port, handler_coro))
+
+runs an asynchronous socket server, listening for concurrent connections. For
+each incoming connection ``conn``, the server calls ``handler_coro(conn))`` and
+adds that coroutine to the Bluelet scheduler.
+
+Bluelet also provides some non-socket-related tools encapsulating generic
+green-threads capabilities:
+
+* ``res = yield bluelet.call(coro())``: Invokes another coroutine as a
+  "sub-coroutine", much like calling a function in ordinary Python code.
+  Pedantically, the current coroutine is suspended and ``coro`` is started up;
+  when ``coro`` finishes, Bluelet returns control to the current coroutine and
+  returns the value returned by ``coro`` (see ``bluelet.end``, below). The
+  effect is similar to 
+* ``res = yield coro())``: Shorthand for the above. Just yielding any generator
+  object is equivalent to using ``bluelet.call``.
+* ``yield bluelet.spawn(coro())``: Like ``call`` but makes the child coroutine
+  run concurrently. Both coroutines remain in the thread scheduler. This is how
+  you can build programs that, for example, handle multiple network connections
+  at once (it's used internally by ``bluelet.server``).
+* ``yield bluelet.end(value=None)``: Terminate the current coroutine and, if the
+  present coroutine was invoked by another one using ``bluelet.call``, return
+  the specified value to it. Analogous to ``return`` in ordinary Python.
+* ``yield bluelet.null()``: Yield without doing anything special. This just
+  makes it possible to let another coroutine run if one is waiting to. It's
+  useful if you have to do a long-running, blocking operation in a coroutine and
+  want to give other green threads a chance to get work done.
+
+Together, this small set of ``yield`` statements are enough to build any
+application that can benefit from simple, pure-Python collaborative
+multitasking.
+
 Authors
 -------
 
-Bluelet is by `Adrian Sampson`_.
+Bluelet is by `Adrian Sampson`_. Please contact me if you have questions or
+comments about Bluelet.
 
 .. _Adrian Sampson: http://github.com/sampsyo/
