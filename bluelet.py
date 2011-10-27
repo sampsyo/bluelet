@@ -95,11 +95,11 @@ def _event_select(events):
             wlist += w
             xlist += x
             for waitable in r:
-                waitable_to_event[('r',waitable)] = event
+                waitable_to_event[('r', waitable)] = event
             for waitable in w:
-                waitable_to_event[('w',waitable)] = event
+                waitable_to_event[('w', waitable)] = event
             for waitable in x:
-                waitable_to_event[('x',waitable)] = event
+                waitable_to_event[('x', waitable)] = event
 
     # Perform select() if we have any waitables.
     if rlist or wlist or xlist:
@@ -110,11 +110,11 @@ def _event_select(events):
     # Gather ready events corresponding to the ready waitables.
     ready_events = set()
     for ready in rready:
-        ready_events.add (waitable_to_event[('r',ready)])
+        ready_events.add(waitable_to_event[('r', ready)])
     for ready in wready:
-        ready_events.add (waitable_to_event[('w',ready)])
+        ready_events.add(waitable_to_event[('w', ready)])
     for ready in xready:
-        ready_events.add (waitable_to_event[('x',ready)])
+        ready_events.add(waitable_to_event[('x', ready)])
     return ready_events
 
 class ThreadException(Exception):
