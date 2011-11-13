@@ -3,7 +3,9 @@ from distutils.core import setup
 
 def _read(fn):
     path = os.path.join(os.path.dirname(__file__), fn)
-    return open(path).read()
+    data = open(path).read().decode('utf8')
+    data = data.replace(u'\u2014', ' -- ')
+    return data
 
 setup(name='bluelet',
       version='0.1',
