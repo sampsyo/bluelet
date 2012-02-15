@@ -11,12 +11,14 @@ import sys
 import types
 import errno
 import traceback
+import time
 
 
 # Basic events used for thread scheduling.
 
 class Event(object):
     pass
+
 class WaitableEvent(Event):
     def waitables(self):
         """Return "waitable" objects to pass to select. Should return
@@ -38,12 +40,12 @@ class ExceptionEvent(Event):
     def __init__(self, exc_info):
         self.exc_info = exc_info
 
-class SpawnEvent(object):
+class SpawnEvent(Event):
     """Add a new coroutine thread to the scheduler."""
     def __init__(self, coro):
         self.spawned = coro
 
-class DelegationEvent(object):
+class DelegationEvent(Event):
     """Suspend execution of the current thread, start a new thread and,
     once the child thread finished, return control to the parent
     thread.
@@ -51,12 +53,21 @@ class DelegationEvent(object):
     def __init__(self, coro):
         self.spawned = coro
 
-class ReturnEvent(object):
+class ReturnEvent(Event):
     """Return a value the current thread's delegator at the point of
     delegation. Ends the current (delegate) thread.
     """
     def __init__(self, value):
         self.value = value
+
+class SleepEvent(WaitableEvent):
+    """Suspend the thread for a given duration.
+    """
+    def __init__(self, duration):
+        self.wakeup_time = time.time() + duration
+
+    def time_left(self):
+        return max(self.wakeup_time - time.time(), 0.0)
 
 class ReadEvent(WaitableEvent):
     """Reads from a file-like object."""
@@ -83,13 +94,20 @@ class WriteEvent(WaitableEvent):
 
 def _event_select(events):
     """Perform a select() over all the Events provided, returning the
-    ones ready to be fired.
+    ones ready to be fired. Only WaitableEvents (including SleepEvents)
+    matter here; all other events are ignored (and thus postponed).
     """
-    # Gather waitables.
+    # Gather waitables and wakeup times.
     waitable_to_event = {}
     rlist, wlist, xlist = [], [], []
+    earliest_wakeup = None
     for event in events:
-        if isinstance(event, WaitableEvent):
+        if isinstance(event, SleepEvent):
+            if not earliest_wakeup:
+                earliest_wakeup = event.wakeup_time
+            else:
+                earliest_wakeup = min(earliest_wakeup, event.wakeup_time)
+        elif isinstance(event, WaitableEvent):
             r, w, x = event.waitables()
             rlist += r
             wlist += w
@@ -101,11 +119,19 @@ def _event_select(events):
             for waitable in x:
                 waitable_to_event[('x', waitable)] = event
 
+    # If we have a any sleeping threads, determine how long to sleep.
+    if earliest_wakeup:
+        timeout = max(earliest_wakeup - time.time(), 0.0)
+    else:
+        timeout = None
+
     # Perform select() if we have any waitables.
     if rlist or wlist or xlist:
-        rready, wready, xready = select.select(rlist, wlist, xlist)
+        rready, wready, xready = select.select(rlist, wlist, xlist, timeout)
     else:
         rready, wready, xready = (), (), ()
+        if timeout:
+            time.sleep(timeout)
 
     # Gather ready events corresponding to the ready waitables.
     ready_events = set()
@@ -115,6 +141,12 @@ def _event_select(events):
         ready_events.add(waitable_to_event[('w', ready)])
     for ready in xready:
         ready_events.add(waitable_to_event[('x', ready)])
+
+    # Gather any finished sleeps.
+    for event in events:
+        if isinstance(event, SleepEvent) and event.time_left() == 0.0:
+            ready_events.add(event)
+
     return ready_events
 
 class ThreadException(Exception):
@@ -399,6 +431,11 @@ def connect(host, port):
     addr = (host, port)
     sock = socket.create_connection(addr)
     return ValueEvent(Connection(sock, addr))
+
+def sleep(duration):
+    """Event: suspend the thread for ``duration`` seconds.
+    """
+    return SleepEvent(duration)
 
 
 # Convenience function for running socket servers.

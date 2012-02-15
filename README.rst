@@ -197,6 +197,8 @@ green-threads capabilities:
 * ``yield bluelet.end(value=None)``: Terminate the current coroutine and, if the
   present coroutine was invoked by another one using ``bluelet.call``, return
   the specified value to it. Analogous to ``return`` in ordinary Python.
+* ``yield bluelet.sleep(duration)``: Suspend the current coroutine for
+  approximately ``duration`` seconds.
 * ``yield bluelet.null()``: Yield without doing anything special. This just
   makes it possible to let another coroutine run if one is waiting to. It's
   useful if you have to do a long-running, blocking operation in a coroutine and
