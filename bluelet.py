@@ -17,17 +17,29 @@ import time
 # Basic events used for thread scheduling.
 
 class Event(object):
+    """Just a base class identifying Bluelet events. An event is an
+    object yielded from a Bluelet thread coroutine to suspend operation
+    and communicate with the scheduler.
+    """
     pass
 
 class WaitableEvent(Event):
+    """A waitable event is one encapsulating an action that can be
+    waited for using a select() call. That is, it's an event with an
+    associated file descriptor.
+    """
     def waitables(self):
-        """Return "waitable" objects to pass to select. Should return
+        """Return "waitable" objects to pass to select(). Should return
         three iterables for input readiness, output readiness, and
         exceptional conditions (i.e., the three lists passed to
         select()).
         """
         return (), (), ()
+
     def fire(self):
+        """Called when an assoicated file descriptor becomes ready
+        (i.e., is returned from a select() call).
+        """
         pass
 
 class ValueEvent(Event):
@@ -74,8 +86,10 @@ class ReadEvent(WaitableEvent):
     def __init__(self, fd, bufsize):
         self.fd = fd
         self.bufsize = bufsize
+
     def waitables(self):
         return (self.fd,), (), ()
+
     def fire(self):
         return self.fd.read(self.bufsize)
 
@@ -84,8 +98,10 @@ class WriteEvent(WaitableEvent):
     def __init__(self, fd, data):
         self.fd = fd
         self.data = data
+
     def waitable(self):
         return (), (self.fd,), ()
+
     def fire(self):
         self.fd.write(self.data)
 
@@ -284,59 +300,43 @@ def run(root_coro):
 
 # Sockets and their associated events.
 
-class AcceptEvent(WaitableEvent):
-    def __init__(self, listener):
-        self.listener = listener
-    def waitables(self):
-        return (self.listener.sock,), (), ()
-    def fire(self):
-        sock, addr = self.listener.sock.accept()
-        return Connection(sock, addr)
 class Listener(object):
+    """A socket wrapper object for listening sockets.
+    """
     def __init__(self, host, port):
+        """Create a listening socket on the given hostname and port.
+        """
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((host, port))
         self.sock.listen(5)
+
     def accept(self):
+        """An event that waits for a connection on the listening socket.
+        When a connection is made, the event returns a Connection
+        object.
+        """
         return AcceptEvent(self)
+
     def close(self):
+        """Immediately close the listening socket. (Not an event.)
+        """
         self.sock.close()
 
-class ReceiveEvent(WaitableEvent):
-    def __init__(self, conn, bufsize):
-        self.conn = conn
-        self.bufsize = bufsize
-    def waitables(self):
-        return (self.conn.sock,), (), ()
-    def fire(self):
-        return self.conn.sock.recv(self.bufsize)
-class SendEvent(WaitableEvent):
-    def __init__(self, conn, data, sendall=False):
-        self.conn = conn
-        self.data = data
-        self.sendall = sendall
-    def waitables(self):
-        return (), (self.conn.sock,), ()
-    def fire(self):
-        if self.sendall:
-            return self.conn.sock.sendall(self.data)
-        else:
-            return self.conn.sock.send(self.data)
-
 class Connection(object):
-    """A socket-esque object for communicating asychronously on
-    network sockets.
+    """A socket wrapper object for connected sockets.
     """
     def __init__(self, sock, addr):
         self.sock = sock
         self.addr = addr
         self._buf = ''
+
     def close(self):
         """Close the connection."""
         self.sock.close()
+
     def recv(self, size):
         """Read at most size bytes of data from the socket."""
         if self._buf:
@@ -346,14 +346,17 @@ class Connection(object):
             return ValueEvent(out)
         else:
             return ReceiveEvent(self, size)
+
     def send(self, data):
         """Sends data on the socket, returning the number of bytes
         successfully sent.
         """
         return SendEvent(self, data)
+
     def sendall(self, data):
         """Send all of data on the socket."""
         return SendEvent(self, data, True)
+
     def readline(self, terminator="\n", bufsize=1024):
         """Reads a line (delimited by terminator) from the socket."""
         while True:
@@ -370,6 +373,52 @@ class Connection(object):
                 self._buf = ''
                 yield ReturnEvent(line)
                 break
+
+class AcceptEvent(WaitableEvent):
+    """An event for Listener objects (listening sockets) that suspends
+    execution until the socket gets a connection.
+    """
+    def __init__(self, listener):
+        self.listener = listener
+
+    def waitables(self):
+        return (self.listener.sock,), (), ()
+
+    def fire(self):
+        sock, addr = self.listener.sock.accept()
+        return Connection(sock, addr)
+
+class ReceiveEvent(WaitableEvent):
+    """An event for Connection objects (connected sockets) for
+    asynchronously reading data.
+    """
+    def __init__(self, conn, bufsize):
+        self.conn = conn
+        self.bufsize = bufsize
+
+    def waitables(self):
+        return (self.conn.sock,), (), ()
+
+    def fire(self):
+        return self.conn.sock.recv(self.bufsize)
+
+class SendEvent(WaitableEvent):
+    """An event for Connection objects (connected sockets) for
+    asynchronously writing data.
+    """
+    def __init__(self, conn, data, sendall=False):
+        self.conn = conn
+        self.data = data
+        self.sendall = sendall
+
+    def waitables(self):
+        return (), (self.conn.sock,), ()
+
+    def fire(self):
+        if self.sendall:
+            return self.conn.sock.sendall(self.data)
+        else:
+            return self.conn.sock.send(self.data)
 
 
 # Public interface for threads; each returns an event object that
