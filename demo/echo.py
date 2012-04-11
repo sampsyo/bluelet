@@ -1,18 +1,19 @@
+from __future__ import print_function
 import sys
 sys.path.insert(0, '..')
 import bluelet
 
 def echoer(conn):
-    print 'Connected: %s' % conn.addr[0]
+    print('Connected: %s' % conn.addr[0])
     try:
         while True:
             data = yield conn.recv(1024)
             if not data:
                 break
-            print 'Read from %s: %s' % (conn.addr[0], repr(data))
+            print('Read from %s: %s' % (conn.addr[0], repr(data)))
             yield conn.sendall(data)
     finally:
-        print 'Disconnected: %s' % conn.addr[0]
+        print('Disconnected: %s' % conn.addr[0])
         conn.close()
         
 def echoserver():
@@ -22,9 +23,9 @@ def echoserver():
             conn = yield listener.accept()
             yield bluelet.spawn(echoer(conn))
     except KeyboardInterrupt:
-        print
+        print()
     finally:
-        print 'Exiting.'
+        print('Exiting.')
         listener.close()
 
 if __name__ == '__main__':

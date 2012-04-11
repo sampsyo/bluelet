@@ -1,6 +1,7 @@
 """A simple Web server built with Bluelet to support concurrent requests
 in a single OS thread.
 """
+from __future__ import print_function
 import sys
 import os
 import mimetypes
@@ -17,7 +18,7 @@ def parse_request(lines):
     for line in lines:
         if not line:
             continue
-        key, value = line.split(': ', 1)
+        key, value = line.split(b': ', 1)
         headers[key] = value
     return method, path, headers
 
@@ -34,8 +35,9 @@ def mime_type(filename):
 def respond(method, path, headers):
     """Generate an HTTP response for a parsed request."""
     # Remove query string, if any.
-    if '?' in path:
-        path, query = path.split('?', 1)
+    if b'?' in path:
+        path, query = path.split(b'?', 1)
+    path = path.decode('utf8')
 
     # Strip leading / and add prefix.
     if path.startswith('/') and len(path) > 0:
@@ -66,7 +68,7 @@ def respond(method, path, headers):
 
     else:
         # Not found.
-        print 'Not found.'
+        print('Not found.')
         return '404 Not Found', {'Content-Type': 'text/html'}, \
                '<html><head><title>404 Not Found</title></head>' \
                '<body><h1>Not found.</h1></body></html>'
@@ -76,7 +78,7 @@ def webrequest(conn):
     # Get the HTTP request.
     request = []
     while True:
-        line = (yield conn.readline('\r\n')).strip()
+        line = (yield conn.readline(b'\r\n')).strip()
         if not line:
             # End of headers.
             break
@@ -88,18 +90,18 @@ def webrequest(conn):
 
     # Parse and log the request and get the response values.
     method, path, headers = parse_request(request)
-    print '%s %s' % (method, path)
+    print('%s %s' % (method, path))
     status, headers, content = respond(method, path, headers)
 
     # Send response.
-    yield conn.sendall("HTTP/1.1 %s\r\n" % status)
-    for key, value in headers.iteritems():
-        yield conn.sendall("%s: %s\r\n" % (key, value))
-    yield conn.sendall("\r\n")
-    yield conn.sendall(content)
+    yield conn.sendall(("HTTP/1.1 %s\r\n" % status).encode('utf8'))
+    for key, value in headers.items():
+        yield conn.sendall(("%s: %s\r\n" % (key, value)).encode('utf8'))
+    yield conn.sendall(b"\r\n")
+    yield conn.sendall(content.encode('utf8'))
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         ROOT = os.path.expanduser(sys.argv[1])
-    print 'http://127.0.0.1:8000/'
+    print('http://127.0.0.1:8000/')
     bluelet.run(bluelet.server('', 8000, webrequest))

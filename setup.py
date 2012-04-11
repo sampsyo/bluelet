@@ -3,12 +3,11 @@ from distutils.core import setup
 
 def _read(fn):
     path = os.path.join(os.path.dirname(__file__), fn)
-    data = open(path).read().decode('utf8')
-    data = data.replace(u'\u2014', ' -- ')
+    data = open(path).read()
     return data
 
 setup(name='bluelet',
-      version='0.1',
+      version='0.2',
       description='pure-Python asynchronous I/O using coroutines',
       author='Adrian Sampson',
       author_email='adrian@radbox.org',
@@ -23,5 +22,7 @@ setup(name='bluelet',
           'Topic :: Internet',
           'Topic :: System :: Networking',
           'Intended Audience :: Developers',
+          'Programming Language :: Python :: 2',
+          'Programming Language :: Python :: 3',
       ],
 )

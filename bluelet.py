@@ -14,6 +14,20 @@ import traceback
 import time
 
 
+# A little bit of "six" (Python 2/3 compatibility): cope with PEP 3109 syntax
+# changes.
+
+PY3 = sys.version_info[0] == 3
+if PY3:
+    def _reraise(typ, exc, tb):
+        raise exc.with_traceback(tb)
+else:
+    exec("""
+def _reraise(typ, exc, tb):
+    raise typ, exc, tb
+    """)
+
+
 # Basic events used for thread scheduling.
 
 class Event(object):
@@ -170,7 +184,7 @@ class ThreadException(Exception):
         self.coro = coro
         self.exc_info = exc_info
     def reraise(self):
-        raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
+        _reraise(self.exc_info[0], self.exc_info[1], self.exc_info[2])
         
 def run(root_coro):
     """Schedules a coroutine, running it to completion. This
@@ -225,7 +239,7 @@ def run(root_coro):
             # running immediate events until nothing is ready.
             while True:
                 have_ready = False
-                for coro, event in threads.items():
+                for coro, event in list(threads.items()):
                     if isinstance(event, SpawnEvent):
                         threads[event.spawned] = ValueEvent(None) # Spawn.
                         advance_thread(coro, None)
@@ -254,12 +268,12 @@ def run(root_coro):
                     break
 
             # Wait and fire.
-            event2coro = dict((v,k) for k,v in threads.iteritems())
+            event2coro = dict((v,k) for k,v in threads.items())
             for event in _event_select(threads.values()):
                 # Run the IO operation, but catch socket errors.
                 try:
                     value = event.fire()
-                except socket.error, exc:
+                except socket.error as exc:
                     if isinstance(exc.args, tuple) and \
                             exc.args[0] == errno.EPIPE:
                         # Broken pipe. Remote host disconnected.
@@ -271,7 +285,7 @@ def run(root_coro):
                 else:
                     advance_thread(event2coro[event], value)
     
-        except ThreadException, te:
+        except ThreadException as te:
             # Exception raised from inside a thread.
             event = ExceptionEvent(te.exc_info)
             if te.coro in delegators:
@@ -331,7 +345,7 @@ class Connection(object):
     def __init__(self, sock, addr):
         self.sock = sock
         self.addr = addr
-        self._buf = ''
+        self._buf = b''
 
     def close(self):
         """Close the connection."""
@@ -357,7 +371,7 @@ class Connection(object):
         """Send all of data on the socket."""
         return SendEvent(self, data, True)
 
-    def readline(self, terminator="\n", bufsize=1024):
+    def readline(self, terminator=b"\n", bufsize=1024):
         """Reads a line (delimited by terminator) from the socket."""
         while True:
             if terminator in self._buf:
@@ -370,7 +384,7 @@ class Connection(object):
                 self._buf += data
             else:
                 line = self._buf
-                self._buf = ''
+                self._buf = b''
                 yield ReturnEvent(line)
                 break
 

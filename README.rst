@@ -85,7 +85,7 @@ in action.
 This example demonstrates the implementation of a network server that is
 slightly more complicated than the echo server described above. Again, the code
 for the server just looks like a sequential, one-connection-at-a-time program
-with ``yield`` expressions inserted—but it runs concurrently and can service
+with ``yield`` expressions inserted -- but it runs concurrently and can service
 many requests at the same time.
 
 crawler
@@ -144,7 +144,7 @@ events and invoke it using ``bluelet.run``::
 ``bluelet.run`` takes a generator (a running coroutine) as an argument and runs
 it to completion. It's the gateway into the Bluelet scheduling universe.
 Remember that, in Python, any "function" with a ``yield`` expression in it is a
-coroutine—that's what makes ``coro`` special.
+coroutine -- that's what makes ``coro`` special.
 
 The key to programming with Bluelet is to use ``yield`` expressions where you
 would typically do anything that blocks or you need to interact with the Bluelet

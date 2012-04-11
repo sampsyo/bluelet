@@ -6,15 +6,25 @@ blocking HTTP libraries, taking advantage of asynchronous I/O currently
 entails writing a custom HTTP client. This example includes a very
 simple, GET-only HTTP requester.
 """
+from __future__ import print_function
 import sys
-import urllib
 import json
 import threading
 import multiprocessing
 import time
-import urlparse
 sys.path.insert(0, '..')
 import bluelet
+
+# Python 2/3 compatibility.
+
+PY3 = sys.version_info[0] == 3
+if PY3:
+    from urllib.parse import urlparse
+    from urllib.request import urlopen
+else:
+    from urlparse import urlparse
+    from urllib import urlopen
+
 
 URL = 'http://api.twitter.com/1/statuses/user_timeline.json' \
       '?screen_name=%s&count=1'
@@ -36,7 +46,7 @@ class AsyncHTTPClient(object):
             "Host: %s" % self.host,
             "User-Agent: bluelet-example",
         ]
-        return "\r\n".join(heads) + "\r\n\r\n"
+        return "\r\n".join(heads).encode('utf8') + b"\r\n\r\n"
 
 
     # Convenience methods.
@@ -44,7 +54,7 @@ class AsyncHTTPClient(object):
     @classmethod
     def from_url(cls, url):
         """Construct a request for the specified URL."""
-        res = urlparse.urlparse(url)
+        res = urlparse(url)
         path = res.path
         if res.query:
             path += '?' + res.query
@@ -116,8 +126,8 @@ def run_sequential():
 
     for username in USERNAMES:
         url = URL % username
-        f = urllib.urlopen(url)
-        data = f.read()
+        f = urlopen(url)
+        data = f.read().decode('utf8')
         tweets[username] = json.loads(data)[0]['text']
 
     return tweets
@@ -134,8 +144,8 @@ def run_threaded():
             self.username = username
         def run(self):
             url = URL % self.username
-            f = urllib.urlopen(url)
-            data = f.read()
+            f = urlopen(url)
+            data = f.read().decode('utf8')
             tweet = json.loads(data)[0]['text']
             with lock:
                 tweets[self.username] = tweet
@@ -153,8 +163,8 @@ def _process_fetch(username):
     # Mapped functions in multiprocessing can't be closures, so this
     # has to be at the module-global scope.
     url = URL % username
-    f = urllib.urlopen(url)
-    data = f.read()
+    f = urlopen(url)
+    data = f.read().decode('utf8')
     tweet = json.loads(data)[0]['text']
     return (username, tweet)
 def run_processes():
@@ -172,13 +182,13 @@ if __name__ == '__main__':
         'threading': run_threaded,
         'multiprocessing': run_processes,
     }
-    for name, func in strategies.iteritems():
+    for name, func in strategies.items():
         start = time.time()
         tweets = func()
         end = time.time()
-        print '%s: %.2f seconds' % (name, (end - start))
+        print('%s: %.2f seconds' % (name, (end - start)))
 
     # Show the tweets, just for fun.
-    print
-    for username, tweet in tweets.iteritems():
-        print '%s: %s' % (username, tweet)
+    print()
+    for username, tweet in tweets.items():
+        print('%s: %s' % (username, tweet))
