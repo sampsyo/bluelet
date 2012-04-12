@@ -3,19 +3,20 @@ import sys
 sys.path.insert(0, '..')
 import bluelet
 import multiprocessing
+import pickle
+import uuid
 
-def root1(conn):
-    yield conn.sendall(b'a message\n')
-    conn.close()
+def thread1(ep):
+    yield ep.put("hello!")
+    yield ep.put(123)
+    yield ep.put({"foo": "bar"})
+    print((yield ep.get()))
 
-    yield bluelet.null()
-
-def root2(conn):
-    data = yield conn.readline()
-    print(repr(data))
-    conn.close()
-
-    yield bluelet.null()
+def thread2(ep):
+    print((yield ep.get()))
+    print((yield ep.get()))
+    print((yield ep.get()))
+    yield ep.put(["test", 1234, "foo"])
 
 class BlueletProc(multiprocessing.Process):
     def __init__(self, coro):
@@ -25,7 +26,21 @@ class BlueletProc(multiprocessing.Process):
     def run(self):
         bluelet.run(self.coro)
 
+class Endpoint(object):
+    def __init__(self, conn, sentinel):
+        self.conn = conn
+        self.sentinel = sentinel
+
+    def put(self, obj):
+        yield self.conn.sendall(pickle.dumps(obj) + self.sentinel)
+
+    def get(self):
+        data = yield self.conn.readline(self.sentinel)
+        data = data[:-len(self.sentinel)]
+        yield bluelet.end(pickle.loads(data))
+
 def channel(port=4915):
+    # Create a pair of connected sockets.
     connections = [None, None]
     listener = bluelet.Listener('127.0.0.1', port)
 
@@ -38,18 +53,21 @@ def channel(port=4915):
 
     yield bluelet.join(listen_thread)
 
-    yield bluelet.end(connections)
+    # Wrap sockets in Endpoints.
+    sentinel = uuid.uuid4().bytes  # Somewhat hacky...
+    yield bluelet.end((Endpoint(connections[0], sentinel),
+                       Endpoint(connections[1], sentinel)))
 
 def main():
-    conn1, conn2 = yield channel()
+    ep1, ep2 = yield channel()
     if False:
         # Run in bluelet (i.e., no parallelism).
-        yield bluelet.spawn(root1(conn1))
-        yield bluelet.spawn(root2(conn2))
+        yield bluelet.spawn(thread1(ep1))
+        yield bluelet.spawn(thread2(ep2))
     else:
         # Run in separate processes.
-        ta = BlueletProc(root1(conn1))
-        tb = BlueletProc(root2(conn2))
+        ta = BlueletProc(thread1(ep1))
+        tb = BlueletProc(thread2(ep2))
         ta.start()
         tb.start()
         ta.join()
