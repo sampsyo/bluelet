@@ -12,6 +12,7 @@ import types
 import errno
 import traceback
 import time
+import collections
 
 
 # A little bit of "six" (Python 2/3 compatibility): cope with PEP 3109 syntax
@@ -70,6 +71,13 @@ class SpawnEvent(Event):
     """Add a new coroutine thread to the scheduler."""
     def __init__(self, coro):
         self.spawned = coro
+
+class JoinEvent(Event):
+    """Suspend the thread until the specified child thread has
+    completed.
+    """
+    def __init__(self, child):
+        self.child = child
 
 class DelegationEvent(Event):
     """Suspend execution of the current thread, start a new thread and,
@@ -185,6 +193,8 @@ class ThreadException(Exception):
         self.exc_info = exc_info
     def reraise(self):
         _reraise(self.exc_info[0], self.exc_info[1], self.exc_info[2])
+
+SUSPENDED = Event()  # Special sentinel placeholder for suspended threads.
         
 def run(root_coro):
     """Schedules a coroutine, running it to completion. This
@@ -192,15 +202,38 @@ def run(root_coro):
     add to by spawning new coroutines.
     """
     # The "threads" dictionary keeps track of all the currently-
-    # executing coroutines. It maps coroutines to their currenly
-    # "blocking" event.
+    # executing and suspended coroutines. It maps coroutines to their
+    # currently "blocking" event. The event value may be SUSPENDED if
+    # the coroutine is waiting on some other condition: namely, a
+    # delegated coroutine or a joined coroutine. In this case, the
+    # coroutine should *also* appear as a value in one of the below
+    # dictionaries `delegators` or `joiners`.
     threads = {root_coro: ValueEvent(None)}
 
-    # When one thread delegates to another thread, its execution is
-    # suspended until the delegate completes. This dictionary keeps
-    # track of each running delegate's delegator.
+    # Maps child coroutines to delegating parents.
     delegators = {}
-    
+
+    # Maps child coroutines to joining (exit-waiting) parents.
+    joiners = collections.defaultdict(list)
+
+    def complete_thread(coro, return_value):
+        """Remove a coroutine from the scheduling pool, awaking
+        delegators and joiners as necessary and returning the specified
+        value to any delegating parent.
+        """
+        del threads[coro]
+
+        # Resume delegator.
+        if coro in delegators:
+            threads[delegators[coro]] = ValueEvent(return_value)
+            del delegators[coro]
+
+        # Resume joiners.
+        if coro in joiners:
+            for parent in joiners[coro]:
+                threads[parent] = ValueEvent(None)
+            del joiners[coro]
+
     def advance_thread(coro, value, is_exc=False):
         """After an event is fired, run a given coroutine associated with
         it in the threads dict until it yields again. If the coroutine
@@ -216,18 +249,15 @@ def run(root_coro):
                 next_event = coro.send(value)
         except StopIteration:
             # Thread is done.
-            del threads[coro]
-            if coro in delegators:
-                # Resume delegator.
-                threads[delegators[coro]] = ValueEvent(None)
-                del delegators[coro]
+            complete_thread(coro, None)
         except:
             # Thread raised some other exception.
             del threads[coro]
             raise ThreadException(coro, sys.exc_info())
         else:
             if isinstance(next_event, types.GeneratorType):
-                # Automatically invoke sub-coroutines.
+                # Automatically invoke sub-coroutines. (Shorthand for
+                # explicit bluelet.call().)
                 next_event = DelegationEvent(next_event)
             threads[coro] = next_event
 
@@ -241,7 +271,7 @@ def run(root_coro):
                 have_ready = False
                 for coro, event in list(threads.items()):
                     if isinstance(event, SpawnEvent):
-                        threads[event.spawned] = ValueEvent(None) # Spawn.
+                        threads[event.spawned] = ValueEvent(None)  # Spawn.
                         advance_thread(coro, None)
                         have_ready = True
                     elif isinstance(event, ValueEvent):
@@ -251,16 +281,17 @@ def run(root_coro):
                         advance_thread(coro, event.exc_info, True)
                         have_ready = True
                     elif isinstance(event, DelegationEvent):
-                        del threads[coro] # Suspend.
-                        threads[event.spawned] = ValueEvent(None) # Spawn.
+                        threads[coro] = SUSPENDED  # Suspend.
+                        threads[event.spawned] = ValueEvent(None)  # Spawn.
                         delegators[event.spawned] = coro
                         have_ready = True
                     elif isinstance(event, ReturnEvent):
                         # Thread is done.
-                        del threads[coro]
-                        if coro in delegators:
-                            threads[delegators[coro]] = ValueEvent(event.value)
-                            del delegators[coro]
+                        complete_thread(coro, event.value)
+                        have_ready = True
+                    elif isinstance(event, JoinEvent):
+                        threads[coro] = SUSPENDED  # Suspend.
+                        joiners[event.child].append(coro)
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
@@ -499,6 +530,12 @@ def sleep(duration):
     """Event: suspend the thread for ``duration`` seconds.
     """
     return SleepEvent(duration)
+
+def join(coro):
+    """Suspend the thread until another, previously `spawn`ed thread
+    completes.
+    """
+    return JoinEvent(coro)
 
 
 # Convenience function for running socket servers.
