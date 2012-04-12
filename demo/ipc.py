@@ -6,17 +6,19 @@ import multiprocessing
 import pickle
 import uuid
 
-def thread1(ep):
-    yield ep.put("hello!")
-    yield ep.put(123)
-    yield ep.put({"foo": "bar"})
-    print((yield ep.get()))
+def server(ep):
+    while True:
+        message = yield ep.get()
+        if message == 'stop':
+            break
+        yield ep.put(message ** 2)
 
-def thread2(ep):
-    print((yield ep.get()))
-    print((yield ep.get()))
-    print((yield ep.get()))
-    yield ep.put(["test", 1234, "foo"])
+def client(ep):
+    for i in range(10):
+        yield ep.put(i)
+        squared = yield ep.get()
+        print(squared)
+    yield ep.put('stop')
 
 class BlueletProc(multiprocessing.Process):
     def __init__(self, coro):
@@ -62,12 +64,12 @@ def main():
     ep1, ep2 = yield channel()
     if False:
         # Run in bluelet (i.e., no parallelism).
-        yield bluelet.spawn(thread1(ep1))
-        yield bluelet.spawn(thread2(ep2))
+        yield bluelet.spawn(server(ep1))
+        yield bluelet.spawn(client(ep2))
     else:
         # Run in separate processes.
-        ta = BlueletProc(thread1(ep1))
-        tb = BlueletProc(thread2(ep2))
+        ta = BlueletProc(server(ep1))
+        tb = BlueletProc(client(ep2))
         ta.start()
         tb.start()
         ta.join()
