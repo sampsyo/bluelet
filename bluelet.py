@@ -79,6 +79,11 @@ class JoinEvent(Event):
     def __init__(self, child):
         self.child = child
 
+class KillEvent(Event):
+    """Unschedule a child thread."""
+    def __init__(self, child):
+        self.child = child
+
 class DelegationEvent(Event):
     """Suspend execution of the current thread, start a new thread and,
     once the child thread finished, return control to the parent
@@ -195,6 +200,13 @@ class ThreadException(Exception):
         _reraise(self.exc_info[0], self.exc_info[1], self.exc_info[2])
 
 SUSPENDED = Event()  # Special sentinel placeholder for suspended threads.
+
+class Delegated(Event):
+    """Placeholder indicating that a thread has delegated execution to a
+    different thread.
+    """
+    def __init__(self, child):
+        self.child = child
         
 def run(root_coro):
     """Schedules a coroutine, running it to completion. This
@@ -261,6 +273,20 @@ def run(root_coro):
                 next_event = DelegationEvent(next_event)
             threads[coro] = next_event
 
+    def kill_thread(coro):
+        """Unschedule this thread and its (recursive) delegates.
+        """
+        # Collect all coroutines in the delegation stack.
+        coros = [coro]
+        while isinstance(threads[coro], Delegated):
+            coro = threads[coro].child
+            coros.append(coro)
+
+        # Complete each coroutine from the top to the bottom of the
+        # stack.
+        for coro in reversed(coros):
+            complete_thread(coro, None)
+
     # Continue advancing threads until root thread exits.
     exit_te = None
     while threads:
@@ -281,7 +307,7 @@ def run(root_coro):
                         advance_thread(coro, event.exc_info, True)
                         have_ready = True
                     elif isinstance(event, DelegationEvent):
-                        threads[coro] = SUSPENDED  # Suspend.
+                        threads[coro] = Delegated(event.spawned)  # Suspend.
                         threads[event.spawned] = ValueEvent(None)  # Spawn.
                         delegators[event.spawned] = coro
                         have_ready = True
@@ -292,6 +318,10 @@ def run(root_coro):
                     elif isinstance(event, JoinEvent):
                         threads[coro] = SUSPENDED  # Suspend.
                         joiners[event.child].append(coro)
+                        have_ready = True
+                    elif isinstance(event, KillEvent):
+                        threads[coro] = ValueEvent(None)
+                        kill_thread(event.child)
                         have_ready = True
 
                 # Only start the select when nothing else is ready.
@@ -536,6 +566,11 @@ def join(coro):
     completes.
     """
     return JoinEvent(coro)
+
+def kill(coro):
+    """Halt the execution of a different `spawn`ed thread.
+    """
+    return KillEvent(coro)
 
 
 # Convenience function for running socket servers.

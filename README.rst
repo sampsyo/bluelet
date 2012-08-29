@@ -196,6 +196,8 @@ green-threads capabilities:
   at once (it's used internally by ``bluelet.server``).
 * ``yield bluelet.join(coro)``: Suspends the current coroutine until a given
   thread, previously started with ``spawn``, completes.
+* ``yield bluelet.kill(coro)``: Aborts and unschedules a previously-spawned
+  thread.
 * ``yield bluelet.end(value=None)``: Terminate the current coroutine and, if the
   present coroutine was invoked by another one using ``bluelet.call``, return
   the specified value to it. Analogous to ``return`` in ordinary Python.

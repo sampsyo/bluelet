@@ -98,7 +98,7 @@ def webrequest(conn):
     for key, value in headers.items():
         yield conn.sendall(("%s: %s\r\n" % (key, value)).encode('utf8'))
     yield conn.sendall(b"\r\n")
-    yield conn.sendall(content.encode('utf8'))
+    yield conn.sendall(content)
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
