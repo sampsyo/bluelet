@@ -375,12 +375,16 @@ def run(root_coro):
 
 # Sockets and their associated events.
 
+class SocketClosedError(Exception):
+    pass
+
 class Listener(object):
     """A socket wrapper object for listening sockets.
     """
     def __init__(self, host, port):
         """Create a listening socket on the given hostname and port.
         """
+        self._closed = False
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -393,11 +397,14 @@ class Listener(object):
         When a connection is made, the event returns a Connection
         object.
         """
+        if self._closed:
+            raise SocketClosedError()
         return AcceptEvent(self)
 
     def close(self):
         """Immediately close the listening socket. (Not an event.)
         """
+        self._closed = True
         self.sock.close()
 
 class Connection(object):
@@ -407,13 +414,18 @@ class Connection(object):
         self.sock = sock
         self.addr = addr
         self._buf = b''
+        self._closed = False
 
     def close(self):
         """Close the connection."""
+        self._closed = True
         self.sock.close()
 
     def recv(self, size):
         """Read at most size bytes of data from the socket."""
+        if self._closed:
+            raise SocketClosedError()
+
         if self._buf:
             # We already have data read previously.
             out = self._buf[:size]
@@ -426,14 +438,21 @@ class Connection(object):
         """Sends data on the socket, returning the number of bytes
         successfully sent.
         """
+        if self._closed:
+            raise SocketClosedError()
         return SendEvent(self, data)
 
     def sendall(self, data):
         """Send all of data on the socket."""
+        if self._closed:
+            raise SocketClosedError()
         return SendEvent(self, data, True)
 
     def readline(self, terminator=b"\n", bufsize=1024):
         """Reads a line (delimited by terminator) from the socket."""
+        if self._closed:
+            raise SocketClosedError()
+
         while True:
             if terminator in self._buf:
                 line, self._buf = self._buf.split(terminator, 1)
