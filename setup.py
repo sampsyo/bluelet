@@ -7,7 +7,7 @@ def _read(fn):
     return data
 
 setup(name='bluelet',
-      version='0.2',
+      version='0.2.0',
       description='pure-Python asynchronous I/O using coroutines',
       author='Adrian Sampson',
       author_email='adrian@radbox.org',
