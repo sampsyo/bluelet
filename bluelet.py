@@ -540,13 +540,13 @@ def call(coro):
         raise ValueError('%s is not a coroutine' % str(coro))
     return DelegationEvent(coro)
 
-def end(value = None):
+def end(value=None):
     """Event: ends the coroutine and returns a value to its
     delegator.
     """
     return ReturnEvent(value)
 
-def read(fd, bufsize = None):
+def read(fd, bufsize=None):
     """Event: read from a file descriptor asynchronously."""
     if bufsize is None:
         # Read all.
