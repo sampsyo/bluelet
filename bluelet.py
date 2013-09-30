@@ -207,7 +207,7 @@ class Delegated(Event):
     """
     def __init__(self, child):
         self.child = child
-        
+
 def run(root_coro):
     """Schedules a coroutine, running it to completion. This
     encapsulates the Bluelet scheduler, which the root coroutine can
@@ -345,7 +345,7 @@ def run(root_coro):
                     threads[event2coro[event]] = ReturnEvent(None)
                 else:
                     advance_thread(event2coro[event], value)
-    
+
         except ThreadException as te:
             # Exception raised from inside a thread.
             event = ExceptionEvent(te.exc_info)
@@ -358,7 +358,7 @@ def run(root_coro):
                 # The thread is root-level. Raise in client code.
                 exit_te = te
                 break
-        
+
         except:
             # For instance, KeyboardInterrupt during select(). Raise
             # into root thread and terminate others.
@@ -605,7 +605,7 @@ def server(host, port, func):
             yield func(conn)
         finally:
             conn.close()
-            
+
     listener = Listener(host, port)
     try:
         while True:
