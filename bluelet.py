@@ -232,7 +232,6 @@ def run(root_coro):
     # History of spawned coroutines for joining of already completed coroutines
     history = weakref.WeakKeyDictionary({root_coro: None})
 
-
     def complete_thread(coro, return_value):
         """Remove a coroutine from the scheduling pool, awaking
         delegators and joiners as necessary and returning the specified
@@ -307,14 +306,17 @@ def run(root_coro):
                         advance_thread(coro, None)
                         have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, ValueEvent):
                         advance_thread(coro, event.value)
                         have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, ExceptionEvent):
                         advance_thread(coro, event.exc_info, True)
                         have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, DelegationEvent):
                         threads[coro] = Delegated(event.spawned)  # Suspend.
                         threads[event.spawned] = ValueEvent(None)  # Spawn.
@@ -322,11 +324,13 @@ def run(root_coro):
                         delegators[event.spawned] = coro
                         have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, ReturnEvent):
                         # Thread is done.
                         complete_thread(coro, event.value)
                         have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, JoinEvent):
                         if event.child not in threads and event.child in history:
                             threads[coro] = ValueEvent(None)
@@ -335,11 +339,13 @@ def run(root_coro):
                             joiners[event.child].append(coro)
                             have_ready = True
                         print len(history)
+                        print len(threads)
                     elif isinstance(event, KillEvent):
                         threads[coro] = ValueEvent(None)
                         kill_thread(event.child)
                         have_ready = True
                         print len(history)
+                        print len(threads)
 
                 # Only start the select when nothing else is ready.
                 if not have_ready:
