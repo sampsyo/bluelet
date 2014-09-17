@@ -305,47 +305,33 @@ def run(root_coro):
                         history[event.spawned] = None # Record in history
                         advance_thread(coro, None)
                         have_ready = True
-                        print len(history)
-                        print len(threads)
                     elif isinstance(event, ValueEvent):
                         advance_thread(coro, event.value)
                         have_ready = True
-                        print len(history)
-                        print len(threads)
                     elif isinstance(event, ExceptionEvent):
                         advance_thread(coro, event.exc_info, True)
                         have_ready = True
-                        print len(history)
-                        print len(threads)
                     elif isinstance(event, DelegationEvent):
                         threads[coro] = Delegated(event.spawned)  # Suspend.
                         threads[event.spawned] = ValueEvent(None)  # Spawn.
                         history[event.spawned] = None # Record in history
                         delegators[event.spawned] = coro
                         have_ready = True
-                        print len(history)
-                        print len(threads)
                     elif isinstance(event, ReturnEvent):
                         # Thread is done.
                         complete_thread(coro, event.value)
                         have_ready = True
-                        print len(history)
-                        print len(threads)
                     elif isinstance(event, JoinEvent):
                         if event.child not in threads and event.child in history:
                             threads[coro] = ValueEvent(None)
                         else:
                             threads[coro] = SUSPENDED  # Suspend.
                             joiners[event.child].append(coro)
-                            have_ready = True
-                        print len(history)
-                        print len(threads)
+                        have_ready = True
                     elif isinstance(event, KillEvent):
                         threads[coro] = ValueEvent(None)
                         kill_thread(event.child)
                         have_ready = True
-                        print len(history)
-                        print len(threads)
 
                 # Only start the select when nothing else is ready.
                 if not have_ready:
@@ -394,7 +380,6 @@ def run(root_coro):
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
         exit_te.reraise()
-
 
 # Sockets and their associated events.
 
