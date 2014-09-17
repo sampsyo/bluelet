@@ -229,7 +229,8 @@ def run(root_coro):
     # Maps child coroutines to joining (exit-waiting) parents.
     joiners = collections.defaultdict(list)
 
-    # History of spawned coroutines for joining of already completed coroutines
+    # History of spawned coroutines for joining of already completed
+    # coroutines.
     history = weakref.WeakKeyDictionary({root_coro: None})
 
     def complete_thread(coro, return_value):
@@ -302,7 +303,7 @@ def run(root_coro):
                 for coro, event in list(threads.items()):
                     if isinstance(event, SpawnEvent):
                         threads[event.spawned] = ValueEvent(None)  # Spawn.
-                        history[event.spawned] = None # Record in history
+                        history[event.spawned] = None  # Record in history.
                         advance_thread(coro, None)
                         have_ready = True
                     elif isinstance(event, ValueEvent):
@@ -314,7 +315,7 @@ def run(root_coro):
                     elif isinstance(event, DelegationEvent):
                         threads[coro] = Delegated(event.spawned)  # Suspend.
                         threads[event.spawned] = ValueEvent(None)  # Spawn.
-                        history[event.spawned] = None # Record in history
+                        history[event.spawned] = None  # Record in history.
                         delegators[event.spawned] = coro
                         have_ready = True
                     elif isinstance(event, ReturnEvent):
@@ -380,6 +381,7 @@ def run(root_coro):
     # If we're exiting with an exception, raise it in the client.
     if exit_te:
         exit_te.reraise()
+
 
 # Sockets and their associated events.
 
@@ -623,4 +625,3 @@ def server(host, port, func):
         pass
     finally:
         listener.close()
-
